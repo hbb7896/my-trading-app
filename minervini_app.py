@@ -4,118 +4,78 @@ import os
 from datetime import datetime
 
 # 1. 페이지 설정
-st.set_page_config(page_title="미너비니 매매 분석기", page_icon="📊", layout="wide")
+st.set_page_config(page_title="미너비니 분석기 v3", page_icon="📊", layout="wide")
 
-# 파일 이름 설정
-FILE_NAME = 'minervini_journal.csv'
+FILE_NAME = 'minervini_journal_v3.csv'
 
-# --- [사이드바] 매매 기록 입력 ---
-st.sidebar.header("📝 매매 일지 작성")
-st.sidebar.caption("매도(청산)가 완료된 건만 입력하세요.")
+# 데이터 로드/저장 함수
+def load_data():
+    if os.path.exists(FILE_NAME):
+        df = pd.read_csv(FILE_NAME)
+        df['Date'] = pd.to_datetime(df['Date'])
+        return df
+    return pd.DataFrame(columns=['Date', 'Ticker', 'P_L_Amount', 'ROI_Percent', 'Memo'])
 
-date = st.sidebar.date_input("매도 날짜", datetime.today())
-ticker = st.sidebar.text_input("종목명 (예: 삼성전자, TSLA)").upper()
-buy_price = st.sidebar.number_input("평균 매수가", min_value=0.0, format="%.2f")
-sell_price = st.sidebar.number_input("평균 매도가", min_value=0.0, format="%.2f")
-qty = st.sidebar.number_input("수량 (주)", min_value=1)
-memo = st.sidebar.text_input("매매 근거 (셋업)")
+def save_data(df):
+    df.to_csv(FILE_NAME, index=False, encoding='utf-8-sig')
 
-if st.sidebar.button("기록 저장 (Save)"):
-    if buy_price > 0 and sell_price > 0:
-        # 수익금 및 수익률 계산
-        pn_l = (sell_price - buy_price) * qty
-        roi = ((sell_price - buy_price) / buy_price) * 100
-        
-        new_data = {
-            'Date': [date],
-            'Ticker': [ticker],
-            'Buy_Price': [buy_price],
-            'Sell_Price': [sell_price],
-            'Qty': [qty],
-            'P_L_Amount': [pn_l],  # 손익금
-            'ROI_Percent': [roi],  # 수익률(%)
-            'Memo': [memo]
-        }
-        new_df = pd.DataFrame(new_data)
+df = load_data()
 
-        if not os.path.exists(FILE_NAME):
-            new_df.to_csv(FILE_NAME, index=False, encoding='utf-8-sig')
-        else:
-            new_df.to_csv(FILE_NAME, mode='a', header=False, index=False, encoding='utf-8-sig')
-        st.sidebar.success(f"{ticker} 저장 완료!")
-    else:
-        st.sidebar.error("가격을 정확히 입력해주세요.")
+# --- [사이드바] 초간편 입력 ---
+st.sidebar.header("📝 매매 결과 입력")
+with st.sidebar.form("quick_input", clear_on_submit=True):
+    date = st.date_input("날짜", datetime.today())
+    ticker = st.text_input("종목명").upper()
+    # 사장님이 요청하신 핵심 데이터 2개
+    pn_l = st.number_input("손익금 (원)", value=0)
+    roi = st.number_input("수익률 (%)", value=0.0, format="%.2f")
+    memo = st.text_input("메모 (셋업 종류 등)")
+    submit = st.form_submit_button("기록 저장")
+
+    if submit:
+        new_row = pd.DataFrame([{'Date': date, 'Ticker': ticker, 'P_L_Amount': pn_l, 'ROI_Percent': roi, 'Memo': memo}])
+        df = pd.concat([df, new_row], ignore_index=True)
+        save_data(df)
+        st.rerun()
 
 # --- [메인 화면] 분석 대시보드 ---
-st.title("📊 Mark Minervini Style Analyzer")
-st.markdown("---")
+st.title("📊 Mark Minervini Style Performance")
 
-if os.path.exists(FILE_NAME):
-    df = pd.read_csv(FILE_NAME)
-    df['Date'] = pd.to_datetime(df['Date'])
-    
-    # 데이터가 있을 때만 분석 시작
+tab1, tab2 = st.tabs(["📈 성과 분석", "⚙️ 데이터 수정/삭제"])
+
+with tab1:
     if len(df) > 0:
-        # 1. 핵심 통계 (Minervini Metrics)
+        # 미너비니 공식 기반 통계
         total_trades = len(df)
-        wins = df[df['P_L_Amount'] > 0]
-        losses = df[df['P_L_Amount'] <= 0]
+        wins = df[df['ROI_Percent'] > 0]
+        losses = df[df['ROI_Percent'] <= 0]
         
-        win_rate = (len(wins) / total_trades) * 100 if total_trades > 0 else 0
-        loss_rate = 100 - win_rate
-        
+        win_rate = (len(wins) / total_trades) * 100
         avg_gain = wins['ROI_Percent'].mean() if not wins.empty else 0
         avg_loss = abs(losses['ROI_Percent'].mean()) if not losses.empty else 0
         
-        # 손익비 (Gain/Loss Ratio)
-        gl_ratio = (avg_gain / avg_loss) if avg_loss > 0 else 0
+        # 기대값 Formula: (Win% * Avg Win) - (Loss% * Avg Loss)
+        expectancy = (win_rate/100 * avg_gain) - ((100-win_rate)/100 * avg_loss)
         
-        # 기대값 (Expectancy) = (승률 x 평균수익) - (패율 x 평균손실)
-        expectancy = (win_rate/100 * avg_gain) - (loss_rate/100 * avg_loss)
-
-        # 상단 지표 표시
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("총 누적 수익금", f"{df['P_L_Amount'].sum():,.0f} 원")
-        c2.metric("승률 (Win Rate)", f"{win_rate:.1f}%")
-        c3.metric("손익비 (G/L Ratio)", f"1 : {gl_ratio:.2f}")
-        c4.metric("거래당 기대 수익", f"{expectancy:.2f}%")
+        c1.metric("총 손익", f"{df['P_L_Amount'].sum():,.0f}원")
+        c2.metric("승률 (Batting Avg)", f"{win_rate:.1f}%")
+        c3.metric("평균 수익/손실", f"{avg_gain:.1f}% / -{avg_loss:.1f}%")
+        c4.metric("기대값 (Expectancy)", f"{expectancy:.2f}%")
 
-        # 미너비니 코멘트 (자동 조언)
-        if gl_ratio < 2:
-            st.warning(f"⚠️ 경고: 손익비가 {gl_ratio:.2f}입니다. 미너비니는 최소 1:2 이상을 권장합니다. 손절폭을 줄이거나 수익을 더 길게 가져가세요.")
-        else:
-            st.success("✅ 훌륭합니다! 손익비가 1:2 이상으로 이상적인 추세추종 구조입니다.")
-
-        st.markdown("---")
-
-        # 2. 차트 분석 (Visuals)
-        col_left, col_right = st.columns(2)
-        
-        with col_left:
-            st.subheader("📈 계좌 수익 곡선 (Equity Curve)")
-            df = df.sort_values('Date')
-            df['Cumulative_PL'] = df['P_L_Amount'].cumsum()
-            st.line_chart(df.set_index('Date')['Cumulative_PL'])
-            
-        with col_right:
-            st.subheader("📅 월별 수익 현황")
-            df['Month'] = df['Date'].dt.strftime('%Y-%m')
-            monthly_pl = df.groupby('Month')['P_L_Amount'].sum()
-            
-            # 색상 설정 (수익은 빨강, 손실은 파랑 - 한국식)
-            st.bar_chart(monthly_pl)
-
-        # 3. 상세 데이터 (Data Table)
-        with st.expander("📄 전체 매매 기록 보기"):
-            # 보기 좋게 정렬 및 포맷팅
-            display_df = df[['Date', 'Ticker', 'ROI_Percent', 'P_L_Amount', 'Memo']].copy()
-            display_df = display_df.sort_values('Date', ascending=False)
-            st.dataframe(display_df.style.format({
-                'ROI_Percent': '{:.2f}%',
-                'P_L_Amount': '{:,.0f}'
-            }))
-
+        st.divider()
+        st.subheader("📉 자산 성장 곡선 (Equity Curve)")
+        df_sorted = df.sort_values('Date')
+        df_sorted['Cumulative'] = df_sorted['P_L_Amount'].cumsum()
+        st.line_chart(df_sorted.set_index('Date')['Cumulative'])
     else:
-        st.info("데이터가 없습니다. 왼쪽 사이드바에서 매매 기록을 추가해주세요.")
-else:
-    st.info("아직 저장된 매매 기록이 없습니다. 왼쪽 사이드바에서 첫 기록을 남겨보세요!")
+        st.info("기록을 먼저 입력해주세요.")
+
+with tab2:
+    st.subheader("📝 기록 수정 및 삭제")
+    # 편집기에서 직접 수정 가능
+    edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True)
+    if st.button("💾 변경사항 저장"):
+        save_data(edited_df)
+        st.success("업데이트 완료!")
+        st.rerun()
