@@ -4,15 +4,16 @@ import os
 from datetime import datetime
 
 # 1. 페이지 설정
-st.set_page_config(page_title="미너비니 분석기 v5", page_icon="📊", layout="wide")
+st.set_page_config(page_title="미너비니 분석기 v5.1", page_icon="📊", layout="wide")
 
-# 파일 이름 (일관성을 위해 v4 파일을 유지하거나 필요시 변경하세요)
+# 파일 이름
 FILE_NAME = 'trading_data_v4.csv'
 
 def load_data():
     if os.path.exists(FILE_NAME):
         try:
             df = pd.read_csv(FILE_NAME)
+            # [중요] 불러올 때 날짜 형식으로 강제 변환
             df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
             return df.dropna(subset=['Date'])
         except:
@@ -37,7 +38,7 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
 
     if submit:
         if ticker:
-            new_row = pd.DataFrame([{'Date': date, 'Ticker': ticker, 'P_L_Amount': pn_l, 'ROI_Percent': roi, 'Memo': memo}])
+            new_row = pd.DataFrame([{'Date': pd.to_datetime(date), 'Ticker': ticker, 'P_L_Amount': pn_l, 'ROI_Percent': roi, 'Memo': memo}])
             st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
             save_data()
             st.success(f"{ticker} 저장 성공!")
@@ -46,15 +47,18 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
             st.error("종목명을 입력해주세요.")
 
 # --- [메인 화면] ---
-st.title("📊 Mark Minervini Performance Analyzer v5")
+st.title("📊 Mark Minervini Performance Analyzer v5.1")
 
+# 데이터 동기화
 df = st.session_state.df
+# [핵심 수정] 분석 직전에 다시 한 번 날짜 형식임을 보장함
+if not df.empty:
+    df['Date'] = pd.to_datetime(df['Date'])
 
 if not df.empty:
     tab1, tab2, tab3, tab4 = st.tabs(["📈 전체 성과", "📅 월별 분석", "🗓️ 년별 분석", "⚙️ 데이터 관리"])
     
     with tab1:
-        # 전체 통계
         total_trades = len(df)
         wins = df[df['ROI_Percent'] > 0]
         loss = df[df['ROI_Percent'] <= 0]
@@ -75,7 +79,6 @@ if not df.empty:
         df_plot['Cumulative'] = df_plot['P_L_Amount'].cumsum()
         st.line_chart(df_plot.set_index('Date')['Cumulative'])
 
-    # [수정/추가된 분석 로직] 통계 계산 함수
     def get_stats(group):
         total = len(group)
         wins = group[group['ROI_Percent'] > 0]
@@ -96,6 +99,7 @@ if not df.empty:
     with tab2:
         st.subheader("📅 월별 성과 요약")
         df_month = df.copy()
+        # 여기서 에러가 나지 않도록 위에서 Date 형식을 맞췄습니다.
         df_month['Month'] = df_month['Date'].dt.strftime('%Y-%m')
         monthly_summary = df_month.groupby('Month').apply(get_stats).sort_index(ascending=False)
         st.table(monthly_summary)
