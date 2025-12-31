@@ -1,124 +1,130 @@
 import streamlit as st
 import pandas as pd
-import os
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 
 # 1. 페이지 설정
-st.set_page_config(page_title="미너비니 분석기 v5.1", page_icon="📊", layout="wide")
+st.set_page_config(page_title="미너비니 분석기 (Cloud)", page_icon="📈", layout="wide")
 
-# 파일 이름
-FILE_NAME = 'trading_data_v4.csv'
+# 2. 구글 시트 연결
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 def load_data():
-    if os.path.exists(FILE_NAME):
-        try:
-            df = pd.read_csv(FILE_NAME)
-            # [중요] 불러올 때 날짜 형식으로 강제 변환
-            df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-            return df.dropna(subset=['Date'])
-        except:
-            pass
-    return pd.DataFrame(columns=['Date', 'Ticker', 'P_L_Amount', 'ROI_Percent', 'Memo'])
+    try:
+        # 구글 시트 읽기 (캐시 없이 항상 최신 데이터)
+        df = conn.read(worksheet=0, ttl=0)
+        
+        # 데이터가 비어있으면 빈 프레임 반환
+        if df.empty:
+             return pd.DataFrame(columns=['Date', 'Ticker', 'P_L_Amount', 'ROI_Percent', 'Memo'])
 
-if 'df' not in st.session_state:
-    st.session_state.df = load_data()
+        # 필수 컬럼이 있는지 확인 (없으면 에러 방지용 빈 프레임)
+        required_cols = ['Date', 'Ticker', 'P_L_Amount', 'ROI_Percent']
+        if not all(col in df.columns for col in required_cols):
+            return pd.DataFrame(columns=['Date', 'Ticker', 'P_L_Amount', 'ROI_Percent', 'Memo'])
 
-def save_data():
-    st.session_state.df.to_csv(FILE_NAME, index=False, encoding='utf-8-sig')
+        # 날짜가 비어있는 행 제거
+        df = df.dropna(subset=['Date'])
+        
+        # --- [중요] 숫자 변환 로직 (엑셀 붙여넣기 대비) ---
+        # 1,000 같은 콤마 제거
+        df['P_L_Amount'] = df['P_L_Amount'].astype(str).str.replace(',', '')
+        df['P_L_Amount'] = pd.to_numeric(df['P_L_Amount'], errors='coerce').fillna(0)
+        
+        # 30% 같은 퍼센트 기호 제거
+        df['ROI_Percent'] = df['ROI_Percent'].astype(str).str.replace('%', '')
+        df['ROI_Percent'] = pd.to_numeric(df['ROI_Percent'], errors='coerce').fillna(0)
+            
+        # 날짜 변환
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        return df
+    except Exception as e:
+        # 뭔가 문제 생기면 빈 표 보여주기
+        return pd.DataFrame(columns=['Date', 'Ticker', 'P_L_Amount', 'ROI_Percent', 'Memo'])
+
+df = load_data()
 
 # --- [사이드바] 입력 양식 ---
-st.sidebar.header("📝 매매 결과 입력")
+st.sidebar.header("📝 매매 기록 입력")
 with st.sidebar.form("quick_input", clear_on_submit=True):
-    date = st.date_input("날짜", datetime.today())
-    ticker = st.text_input("종목명").upper()
-    pn_l = st.number_input("손익금 (원)", value=0)
-    roi = st.number_input("수익률 (%)", value=0.0, format="%.2f")
-    memo = st.text_input("메모")
+    date = st.date_input("Date (일자)", datetime.today())
+    ticker = st.text_input("Ticker (종목명)").upper()
+    pn_l = st.number_input("P_L (손익금)", value=0, step=1000)
+    roi = st.number_input("ROI (수익률 %)", value=0.0, format="%.2f")
+    memo = st.text_input("Memo (비고)")
     submit = st.form_submit_button("기록 저장")
 
     if submit:
         if ticker:
-            new_row = pd.DataFrame([{'Date': pd.to_datetime(date), 'Ticker': ticker, 'P_L_Amount': pn_l, 'ROI_Percent': roi, 'Memo': memo}])
-            st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
-            save_data()
-            st.success(f"{ticker} 저장 성공!")
+            new_data = pd.DataFrame([{
+                'Date': date.strftime('%Y-%m-%d'),
+                'Ticker': ticker,
+                'P_L_Amount': pn_l,
+                'ROI_Percent': roi,
+                'Memo': memo
+            }])
+            
+            if df.empty:
+                updated_df = new_data
+            else:
+                df['Date'] = df['Date'].dt.strftime('%Y-%m-%d')
+                updated_df = pd.concat([df, new_data], ignore_index=True)
+
+            # 구글 시트 업데이트
+            conn.update(worksheet=0, data=updated_df)
+            st.success(f"✅ {ticker} 저장 완료!")
             st.rerun()
         else:
             st.error("종목명을 입력해주세요.")
 
 # --- [메인 화면] ---
-st.title("📊 Mark Minervini Performance Analyzer v5.1")
-
-# 데이터 동기화
-df = st.session_state.df
-# [핵심 수정] 분석 직전에 다시 한 번 날짜 형식임을 보장함
-if not df.empty:
-    df['Date'] = pd.to_datetime(df['Date'])
+st.title("📊 Mark Minervini Dashboard (Cloud)")
 
 if not df.empty:
-    tab1, tab2, tab3, tab4 = st.tabs(["📈 전체 성과", "📅 월별 분석", "🗓️ 년별 분석", "⚙️ 데이터 관리"])
+    tab1, tab2, tab3 = st.tabs(["📈 성과 분석", "📅 기간별", "📋 데이터 원본"])
     
     with tab1:
-        total_trades = len(df)
+        total = len(df)
         wins = df[df['ROI_Percent'] > 0]
         loss = df[df['ROI_Percent'] <= 0]
-        win_rate = (len(wins) / total_trades) * 100
+        
+        win_rate = (len(wins) / total) * 100 if total > 0 else 0
         avg_gain = wins['ROI_Percent'].mean() if not wins.empty else 0
         avg_loss = abs(loss['ROI_Percent'].mean()) if not loss.empty else 0
         expectancy = (win_rate/100 * avg_gain) - ((100-win_rate)/100 * avg_loss)
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("총 손익", f"{df['P_L_Amount'].sum():,.0f}원")
-        c2.metric("전체 승률", f"{win_rate:.1f}%")
-        c3.metric("평균 수익/손실", f"{avg_gain:.1f}% / -{avg_loss:.1f}%")
-        c4.metric("기대값", f"{expectancy:.2f}%")
+        c1.metric("Total P&L", f"{df['P_L_Amount'].sum():,.0f} KRW")
+        c2.metric("Win Rate", f"{win_rate:.1f}%")
+        c3.metric("Win/Loss Ratio", f"+{avg_gain:.1f}% / -{avg_loss:.1f}%")
+        c4.metric("Expectancy", f"{expectancy:.2f}%")
         
         st.divider()
-        st.subheader("📈 누적 수익 곡선")
-        df_plot = df.sort_values('Date')
+        st.subheader("Equity Curve")
+        df_plot = df.sort_values('Date').copy()
         df_plot['Cumulative'] = df_plot['P_L_Amount'].cumsum()
         st.line_chart(df_plot.set_index('Date')['Cumulative'])
 
-    def get_stats(group):
-        total = len(group)
-        wins = group[group['ROI_Percent'] > 0]
-        loss = group[group['ROI_Percent'] <= 0]
-        win_rate = (len(wins) / total) * 100
-        avg_gain = wins['ROI_Percent'].mean() if not wins.empty else 0
-        avg_loss = abs(loss['ROI_Percent'].mean()) if not loss.empty else 0
-        pl_ratio = (avg_gain / avg_loss) if avg_loss > 0 else 0
-        return pd.Series({
-            '매매횟수': total,
-            '승률': f"{win_rate:.1f}%",
-            '손익비(P/L)': f"1 : {pl_ratio:.2f}",
-            '평균수익': f"{avg_gain:.1f}%",
-            '평균손실': f"-{avg_loss:.1f}%",
-            '수익금 합계': f"{group['P_L_Amount'].sum():,.0f}원"
-        })
-
     with tab2:
-        st.subheader("📅 월별 성과 요약")
-        df_month = df.copy()
-        # 여기서 에러가 나지 않도록 위에서 Date 형식을 맞췄습니다.
-        df_month['Month'] = df_month['Date'].dt.strftime('%Y-%m')
-        monthly_summary = df_month.groupby('Month').apply(get_stats).sort_index(ascending=False)
-        st.table(monthly_summary)
+        st.subheader("Period Analysis")
+        df['Date'] = pd.to_datetime(df['Date'])
+        
+        col_m, col_y = st.columns(2)
+        with col_m:
+            st.caption("Monthly P&L")
+            df['Month'] = df['Date'].dt.strftime('%Y-%m')
+            st.bar_chart(df.groupby('Month')['P_L_Amount'].sum())
+        
+        with col_y:
+            st.caption("Yearly P&L")
+            df['Year'] = df['Date'].dt.strftime('%Y')
+            st.bar_chart(df.groupby('Year')['P_L_Amount'].sum())
 
     with tab3:
-        st.subheader("🗓️ 년별 성과 요약")
-        df_year = df.copy()
-        df_year['Year'] = df_year['Date'].dt.strftime('%Y')
-        yearly_summary = df_year.groupby('Year').apply(get_stats).sort_index(ascending=False)
-        st.table(yearly_summary)
+        st.caption("Synced with Google Sheets")
+        st.dataframe(df.sort_values('Date', ascending=False))
 
-    with tab4:
-        st.subheader("📝 데이터 편집기")
-        edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True)
-        if st.button("💾 변경사항 저장"):
-            st.session_state.df = edited_df
-            save_data()
-            st.success("데이터 업데이트 완료!")
-            st.rerun()
 else:
-    st.info("기록된 데이터가 없습니다.")
+    st.info("👈 사이드바에서 첫 매매 기록을 입력하거나, 구글 시트에 데이터를 붙여넣어주세요!")
+
 
