@@ -16,10 +16,15 @@ def load_data():
         if df.empty:
              return pd.DataFrame(columns=['Date', 'Ticker', 'P_L_Amount', 'ROI_Percent', 'Memo'])
         
-        # 데이터 전처리
         df = df.dropna(subset=['Date'])
-        df['P_L_Amount'] = pd.to_numeric(df['P_L_Amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-        df['ROI_Percent'] = pd.to_numeric(df['ROI_Percent'].astype(str).str.replace('%', ''), errors='coerce').fillna(0)
+        
+        # 숫자 변환 (콤마, % 제거)
+        df['P_L_Amount'] = df['P_L_Amount'].astype(str).str.replace(',', '')
+        df['P_L_Amount'] = pd.to_numeric(df['P_L_Amount'], errors='coerce').fillna(0)
+        
+        df['ROI_Percent'] = df['ROI_Percent'].astype(str).str.replace('%', '')
+        df['ROI_Percent'] = pd.to_numeric(df['ROI_Percent'], errors='coerce').fillna(0)
+        
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         return df
     except Exception as e:
@@ -27,108 +32,129 @@ def load_data():
 
 df = load_data()
 
-# --- [사이드바] 입력 양식 (기존과 동일) ---
+# --- [사이드바] 입력 양식 ---
 st.sidebar.header("📝 매매 기록 입력")
 with st.sidebar.form("quick_input", clear_on_submit=True):
-    date = st.date_input("Date", datetime.today())
-    ticker = st.text_input("Ticker").upper()
-    pn_l = st.number_input("P_L (금액)", value=0)
-    roi = st.number_input("ROI (%)", value=0.0, format="%.2f")
-    memo = st.text_input("Memo")
+    date = st.date_input("일자", datetime.today())
+    ticker = st.text_input("종목명").upper()
+    pn_l = st.number_input("손익금 (원)", value=0)
+    roi = st.number_input("수익률 (%)", value=0.0, format="%.2f")
+    memo = st.text_input("메모")
     submit = st.form_submit_button("기록 저장")
 
-    if submit and ticker:
-        new_data = pd.DataFrame([{'Date': date.strftime('%Y-%m-%d'), 'Ticker': ticker, 'P_L_Amount': pn_l, 'ROI_Percent': roi, 'Memo': memo}])
-        df_for_up = load_data()
-        if not df_for_up.empty:
-            df_for_up['Date'] = df_for_up['Date'].dt.strftime('%Y-%m-%d')
-            updated_df = pd.concat([df_for_up, new_data], ignore_index=True)
-        else:
-            updated_df = new_data
-        conn.update(worksheet=0, data=updated_df)
-        st.success(f"✅ {ticker} 저장 완료!")
-        st.rerun()
+    if submit:
+        if ticker:
+            new_data = pd.DataFrame([{
+                'Date': date.strftime('%Y-%m-%d'),
+                'Ticker': ticker,
+                'P_L_Amount': pn_l,
+                'ROI_Percent': roi,
+                'Memo': memo
+            }])
+            
+            if df.empty:
+                updated_df = new_data
+            else:
+                df_temp = load_data()
+                df_temp['Date'] = df_temp['Date'].dt.strftime('%Y-%m-%d')
+                updated_df = pd.concat([df_temp, new_data], ignore_index=True)
 
-# --- [메인 화면] 마크 미너비니 스타일 분석 ---
-st.title("🏆 Minervini Professional Analytics")
+            conn.update(worksheet=0, data=updated_df)
+            st.success(f"✅ {ticker} 저장 완료!")
+            st.rerun()
+        else:
+            st.error("종목명을 입력해주세요.")
+
+# --- [메인 화면] ---
+st.title("🏆 트레이딩 성과 분석 (Deep Dive)")
 
 if not df.empty:
-    # --- 핵심 지표 계산 ---
+    # --- 1. 전체 트레이딩 요약 (Overall Summary) ---
+    st.subheader("📊 전체 트레이딩 요약")
+    
     total_trades = len(df)
     wins = df[df['ROI_Percent'] > 0]
     losses = df[df['ROI_Percent'] <= 0]
     
-    batting_avg = (len(wins) / total_trades) * 100 if total_trades > 0 else 0
+    # 주요 지표 계산
+    win_rate = (len(wins) / total_trades) * 100 if total_trades > 0 else 0
     avg_gain = wins['ROI_Percent'].mean() if not wins.empty else 0
     avg_loss = abs(losses['ROI_Percent'].mean()) if not losses.empty else 0
-    gain_loss_ratio = avg_gain / avg_loss if avg_loss != 0 else 0
-    
-    # 미너비니 기대값 (Expectancy) = (승률 * 평균수익) - (패율 * 평균손실)
-    expectancy = (batting_avg/100 * avg_gain) - ((1-batting_avg/100) * avg_loss)
-    
-    # 프로핏 팩터 (총 이익 / 총 손실)
-    total_profit = wins['P_L_Amount'].sum()
-    total_loss = abs(losses['P_L_Amount'].sum())
-    profit_factor = total_profit / total_loss if total_loss != 0 else float('inf')
+    wl_ratio = avg_gain / avg_loss if avg_loss != 0 else 0
+    total_pl = df['P_L_Amount'].sum()
 
-    # --- 1. 상단 스코어보드 ---
-    st.subheader("📍 Key Performance Indicators (KPI)")
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Batting Average (승률)", f"{batting_avg:.1f}%")
-    m2.metric("Win/Loss Ratio (손익비)", f"{gain_loss_ratio:.2f} : 1")
-    m3.metric("Expectancy (기대값)", f"{expectancy:.2f}%")
-    m4.metric("Profit Factor", f"{profit_factor:.2f}")
+    # 지표 카드 표시 (요청하신 항목 위주)
+    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+    kpi1.metric("총 손익", f"{total_pl:,.0f}원")
+    kpi2.metric("성공률 (승률)", f"{win_rate:.1f}%")
+    kpi3.metric("평균 수익", f"+{avg_gain:.2f}%")
+    kpi4.metric("평균 손실", f"-{avg_loss:.2f}%")
+    kpi5.metric("손익비 (성공/실패)", f"{wl_ratio:.2f}")
 
-    # --- 2. 상세 통계 테이블 ---
     st.divider()
-    col1, col2 = st.columns(2)
+
+    # --- 2. [핵심] 월별 상세 성적표 (Monthly Report) ---
+    st.subheader("📅 월별 상세 성적표")
     
-    with col1:
-        st.markdown("### 📊 Trade Statistics")
-        stats_data = {
-            "Metric": ["Total Trades (총 매매)", "Largest Win (최대 수익 %)", "Largest Loss (최대 손실 %)", "Avg Holding Gain", "Avg Holding Loss"],
-            "Value": [f"{total_trades}회", f"{df['ROI_Percent'].max():.2f}%", f"{df['ROI_Percent'].min():.2f}%", f"{avg_gain:.2f}%", f"{avg_loss:.2f}%"]
-        }
-        st.table(pd.DataFrame(stats_data))
+    df['YearMonth'] = df['Date'].dt.strftime('%Y-%m')
+    
+    # 월별 그룹화 및 통계 계산 함수
+    monthly_stats = []
+    
+    # 최신 달부터 보이게 정렬 (내림차순)
+    for ym, group in df.groupby('YearMonth'):
+        g_wins = group[group['ROI_Percent'] > 0]
+        g_losses = group[group['ROI_Percent'] <= 0]
+        
+        m_win_rate = (len(g_wins) / len(group)) * 100
+        m_avg_gain = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
+        m_avg_loss = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
+        m_wl_ratio = m_avg_gain / m_avg_loss if m_avg_loss != 0 else 0
+        
+        monthly_stats.append({
+            "기간": ym,
+            "총 손익": group['P_L_Amount'].sum(),
+            "총 거래수": f"{len(group)}회",
+            "성공률(승률)": f"{m_win_rate:.1f}%",
+            "평균 수익": f"+{m_avg_gain:.2f}%",
+            "평균 손실": f"-{m_avg_loss:.2f}%",
+            "손익비": f"{m_wl_ratio:.2f}"
+        })
+    
+    # 데이터프레임으로 변환 및 역순 정렬 (최신이 위로)
+    stats_df = pd.DataFrame(monthly_stats).sort_values("기간", ascending=False)
+    
+    # 숫자 예쁘게 꾸미기 (색상 적용)
+    def style_dataframe(row):
+        return ['background-color: #e6fffa' if row.name % 2 == 0 else '' for _ in row]
 
-    with col2:
-        st.markdown("### 📉 Equity & Drawdown")
-        df_plot = df.sort_values('Date').copy()
-        df_plot['Cumulative_PL'] = df_plot['P_L_Amount'].cumsum()
-        st.line_chart(df_plot.set_index('Date')['Cumulative_PL'])
+    # 화면에 표 출력
+    st.dataframe(
+        stats_df.style.format({"총 손익": "{:,.0f}원"}),
+        use_container_width=True,
+        hide_index=True
+    )
 
-    # --- 3. 월별 수익 현황 (미너비니 프로그램의 핵심!) ---
+    # --- 3. 그래프 분석 ---
     st.divider()
-    st.subheader("📅 Monthly Performance Matrix (Profit/Loss Sum)")
+    g1, g2 = st.columns(2)
     
-    df['Year'] = df['Date'].dt.year
-    df['Month'] = df['Date'].dt.month
-    
-    # 연도/월별 손익 합계 표 만들기
-    monthly_pivot = df.pivot_table(
-        values='P_L_Amount', 
-        index='Year', 
-        columns='Month', 
-        aggfunc='sum'
-    ).fillna(0)
-    
-    # 1월~12월 컬럼 보장
-    for m in range(1, 13):
-        if m not in monthly_pivot.columns:
-            monthly_pivot[m] = 0
-    monthly_pivot = monthly_pivot[range(1, 13)] # 순서 정렬
-    monthly_pivot.columns = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    
-    # 스타일 적용 (수익은 빨강/초록 등으로 표시하면 좋지만 기본 표로 출력)
-    st.dataframe(monthly_pivot.style.format("{:,.0f}").background_gradient(cmap='RdYlGn', axis=None))
+    with g1:
+        st.subheader("📈 자산 곡선 (누적 손익)")
+        df_sorted = df.sort_values('Date')
+        df_sorted['Cumulative'] = df_sorted['P_L_Amount'].cumsum()
+        st.line_chart(df_sorted.set_index('Date')['Cumulative'])
+        
+    with g2:
+        st.subheader("📊 승률 분포")
+        # 승/패 파이차트 대신 직관적인 바 차트
+        st.bar_chart(pd.DataFrame({
+            'Count': [len(wins), len(losses)]
+        }, index=['Winning Trades (수익)', 'Losing Trades (손실)']))
 
-    # --- 4. 데이터 상세 로그 ---
-    st.divider()
-    with st.expander("🔍Raw Data (Edit in Google Sheets)"):
+    # --- 4. 데이터 원본 ---
+    with st.expander("🔍 전체 거래 내역 보기"):
         st.dataframe(df.sort_values('Date', ascending=False))
 
 else:
-    st.info("데이터가 없습니다. 사이드바에서 첫 번째 매매 기록을 입력해 주세요.")
-
-
-
+    st.info("데이터가 없습니다. 매매 기록을 입력하면 통계가 나타납니다.")
