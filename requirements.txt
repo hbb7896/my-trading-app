@@ -2,3 +2,4 @@ pandas
 streamlit
 st-gsheets-connection
 matplotlib
+yfinance
