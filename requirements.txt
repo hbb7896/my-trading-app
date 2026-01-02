@@ -3,3 +3,4 @@ streamlit
 st-gsheets-connection
 matplotlib
 yfinance
+FinanceDataReader
