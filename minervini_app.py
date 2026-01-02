@@ -13,7 +13,7 @@ st.set_page_config(page_title="Trading Master Dashboard", page_icon="💎", layo
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- [추가됨] 한국 종목 리스트 가져오기 (검색용) ---
+# 한국 종목 리스트 가져오기 (검색용)
 @st.cache_data(ttl=86400)
 def get_krx_list():
     try:
@@ -21,7 +21,7 @@ def get_krx_list():
     except:
         return pd.DataFrame()
 
-# --- [추가됨] 스마트 종목 검색 함수 ---
+# 스마트 종목 검색 함수
 def find_ticker_smart(name, krx_list):
     if krx_list.empty: return name, "목록 로딩 실패"
     
@@ -64,13 +64,13 @@ def load_data():
         return pd.DataFrame(columns=['Date', 'Ticker', 'P_L_Amount', 'ROI_Percent', 'Memo'])
 
 df = load_data()
-krx_list = get_krx_list() # 리스트 미리 로딩
+krx_list = get_krx_list() 
 
 # --- [사이드바] 입력 양식 ---
 st.sidebar.header("📝 매매 기록 입력")
 with st.sidebar.form("quick_input", clear_on_submit=True):
     date = st.date_input("일자", datetime.today())
-    ticker = st.text_input("종목명 (예: 삼성전자)").strip() # 대문자 변환 제거 (한글 위해)
+    ticker = st.text_input("종목명 (예: 삼성전자)").strip()
     pn_l = st.number_input("손익금 (원)", value=0)
     roi = st.number_input("수익률 (%)", value=0.0, format="%.2f")
     memo = st.text_input("메모")
@@ -103,7 +103,6 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성 (오답 노트 추가됨)
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 차트 대시보드", "📅 월별 분석", "📆 연도별 분석", "📋 데이터 원본", "❌ 오답 노트"])
     
     # 공통 계산
@@ -132,64 +131,70 @@ if not df.empty:
         st.divider()
         st.subheader("🚀 내 계좌 vs KOSPI 지수")
         
-        # 1. 데이터 준비 (날짜별 합산)
+        # 1. 데이터 준비
         daily_df = df.groupby('Date')['P_L_Amount'].sum().reset_index().sort_values('Date')
         daily_df['Cumulative'] = daily_df['P_L_Amount'].cumsum()
         
-        # 2. 코스피 데이터 (FinanceDataReader로 교체)
+        # 2. 코스피 데이터
         try:
             start_date_str = daily_df['Date'].min().strftime('%Y-%m-%d')
             kospi = fdr.DataReader('KS11', start_date_str).reset_index()
             kospi = kospi[['Date', 'Close']]
             kospi.columns = ['Date', 'KOSPI']
             
-            # 3. 차트 그리기 (선 그래프로 변경)
+            # 3. 차트 그리기 (선 그래프)
             base = alt.Chart(daily_df).encode(x='Date:T')
-            
-            # [수정됨] mark_area -> mark_line (깔끔한 선)
             my_chart = base.mark_line(color='#00AA00', strokeWidth=3).encode(
                 y=alt.Y('Cumulative:Q', title='내 누적 수익 (원)'),
                 tooltip=['Date', 'Cumulative']
             )
-            
-            # 코스피 (빨간 점선)
             kospi_chart = alt.Chart(kospi).mark_line(color='#FF4444', strokeDash=[5,5]).encode(
                 x='Date:T',
                 y=alt.Y('KOSPI:Q', title='KOSPI 지수', scale=alt.Scale(zero=False)),
                 tooltip=['Date', 'KOSPI']
             )
-            
-            combined_chart = alt.layer(my_chart, kospi_chart).resolve_scale(y='independent')
-            st.altair_chart(combined_chart, use_container_width=True)
+            st.altair_chart(alt.layer(my_chart, kospi_chart).resolve_scale(y='independent'), use_container_width=True)
             
         except Exception as e:
-            # 실패 시 내 차트만
             st.line_chart(daily_df.set_index('Date')['Cumulative'])
 
         st.subheader("📊 월별 손익 흐름")
         monthly_sum = df.groupby('YearMonth')['P_L_Amount'].sum()
         st.bar_chart(monthly_sum)
 
-    # === TAB 2: 월별 상세 분석 (기존 유지) ===
+    # === [수정됨] TAB 2: 월별 상세 분석 (PF 추가) ===
     with tab2:
         st.subheader("📅 월별 상세 성적표")
         monthly_stats = []
         for ym, group in df.groupby('YearMonth'):
             g_wins = group[group['ROI_Percent'] > 0]
             g_losses = group[group['ROI_Percent'] <= 0]
+            
+            # PF 계산용 총 수익금/손실금
+            gross_profit = group[group['P_L_Amount'] > 0]['P_L_Amount'].sum()
+            gross_loss = abs(group[group['P_L_Amount'] <= 0]['P_L_Amount'].sum())
+            
+            # PF 계산 (손실이 0이면 PF는 수익금 자체가 됨 - 편의상)
+            pf = gross_profit / gross_loss if gross_loss > 0 else 0
+            
             m_avg_gain = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
             m_avg_loss = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
             m_wl_ratio = m_avg_gain / m_avg_loss if m_avg_loss != 0 else 0
             
             monthly_stats.append({
-                "기간": ym, "총 손익": group['P_L_Amount'].sum(), "거래수": f"{len(group)}회",
-                "승률": f"{(len(g_wins)/len(group))*100:.1f}%", "평균수익": f"+{m_avg_gain:.2f}%",
-                "평균손실": f"-{m_avg_loss:.2f}%", "손익비": f"{m_wl_ratio:.2f}"
+                "기간": ym, 
+                "총 손익": group['P_L_Amount'].sum(), 
+                "거래수": f"{len(group)}회",
+                "승률": f"{(len(g_wins)/len(group))*100:.1f}%", 
+                "평균수익": f"+{m_avg_gain:.2f}%",
+                "평균손실": f"-{m_avg_loss:.2f}%", 
+                "손익비": f"{m_wl_ratio:.2f}",
+                "PF (프로핏팩터)": f"{pf:.2f}"
             })
         m_df = pd.DataFrame(monthly_stats).sort_values("기간", ascending=False)
-        st.dataframe(m_df.style.format({"총 손익": "{:,.0f}원"}), use_container_width=True)
+        st.dataframe(m_df.style.format({"총 손익": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='RdYlGn', vmin=-100000, vmax=100000), use_container_width=True)
 
-    # === TAB 3: 연도별 분석 (기존 유지 + 색상 에러 방지용 matplotlib 필수) ===
+    # === TAB 3: 연도별 분석 ===
     with tab3:
         st.subheader("📆 연도별 종합 성적표")
         yearly_stats = []
@@ -208,11 +213,11 @@ if not df.empty:
         y_df = pd.DataFrame(yearly_stats).sort_values("연도", ascending=False)
         st.dataframe(y_df.style.format({"총 손익": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
 
-    # === TAB 4: 데이터 원본 (기존 유지) ===
+    # === TAB 4: 데이터 원본 ===
     with tab4:
         st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
 
-    # === [NEW] TAB 5: 오답 노트 (스마트 검색 탑재) ===
+    # === TAB 5: 오답 노트 ===
     with tab5:
         st.subheader("🚩 오답 노트 & 차트 복기")
         losses = df[df['ROI_Percent'] < 0].sort_values('Date', ascending=False)
@@ -226,17 +231,14 @@ if not df.empty:
                 st.info(f"메모: {row['Memo']}")
                 
             with c2:
-                # 스마트 검색 실행
                 code, found_name = find_ticker_smart(target_name, krx_list)
-                
                 if "실패" in found_name:
-                    st.warning(f"'{target_name}' 코드를 못 찾았습니다. 정확한 이름을 입력해주세요.")
+                    st.warning(f"'{target_name}' 코드를 못 찾았습니다.")
                 else:
                     st.success(f"🔍 검색: **{found_name} ({code})**")
                     try:
                         chart_data = yf.download(code, start=(datetime.today()-timedelta(days=180)), progress=False)
                         if not chart_data.empty:
-                            # yfinance 멀티인덱스 처리
                             if isinstance(chart_data.columns, pd.MultiIndex):
                                 close_data = chart_data.xs('Close', axis=1, level=0)
                             else:
