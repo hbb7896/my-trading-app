@@ -21,21 +21,23 @@ def get_krx_list():
     except:
         return pd.DataFrame()
 
-# --- [수정됨] 스마트 종목 검색 함수 (차트용 코드 반환) ---
+# --- 스마트 종목 검색 함수 ---
 def find_ticker_smart(name, krx_list):
     if krx_list.empty: return name, "목록 로딩 실패"
     
     # 1. 정확히 일치
     exact = krx_list[krx_list['Name'] == name]
     if not exact.empty:
-        # FinanceDataReader는 숫자 코드(예: 005930)만 있으면 됩니다.
-        return exact.iloc[0]['Code'], exact.iloc[0]['Name']
+        row = exact.iloc[0]
+        suffix = ".KS" if row['Market'] in ['KOSPI', 'KOSPI200'] else ".KQ"
+        return row['Code'] + suffix, row['Name']
     
     # 2. 포함된 글자 검색
     contains = krx_list[krx_list['Name'].str.contains(name, na=False)]
     if not contains.empty:
         best = contains.sort_values(by="Name", key=lambda x: x.str.len()).iloc[0]
-        return best['Code'], best['Name']
+        suffix = ".KS" if best['Market'] in ['KOSPI', 'KOSPI200'] else ".KQ"
+        return best['Code'] + suffix, best['Name']
         
     return name, "검색 실패"
 
@@ -170,7 +172,7 @@ if not df.empty:
         monthly_sum = df.groupby('YearMonth')['P_L_Amount'].sum()
         st.bar_chart(monthly_sum)
 
-    # === TAB 2: 월별 상세 분석 (점수표 포함) ===
+    # === TAB 2: 월별 상세 분석 ===
     with tab2:
         st.subheader("📅 월별 상세 성적표")
         monthly_stats = []
@@ -178,6 +180,7 @@ if not df.empty:
             g_wins = group[group['ROI_Percent'] > 0]
             g_losses = group[group['ROI_Percent'] <= 0]
             
+            # [수정완료] 잘렸던 코드를 완벽하게 복구했습니다
             gross_profit = group[group['P_L_Amount'] > 0]['P_L_Amount'].sum()
             gross_loss = abs(group[group['P_L_Amount'] <= 0]['P_L_Amount'].sum())
             pf = gross_profit / gross_loss if gross_loss > 0 else 0
@@ -201,7 +204,7 @@ if not df.empty:
         
         show_pf_guide()
 
-    # === TAB 3: 연도별 분석 (점수표 포함) ===
+    # === TAB 3: 연도별 분석 ===
     with tab3:
         st.subheader("📆 연도별 종합 성적표")
         yearly_stats = []
@@ -226,7 +229,7 @@ if not df.empty:
     with tab4:
         st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
 
-    # === TAB 5: 오답 노트 (차트 기능 개선됨) ===
+    # === TAB 5: 오답 노트 ===
     with tab5:
         st.subheader("🚩 오답 노트 & 차트 복기")
         losses = df[df['ROI_Percent'] < 0].sort_values('Date', ascending=False)
@@ -240,28 +243,26 @@ if not df.empty:
                 st.info(f"메모: {row['Memo']}")
                 
             with c2:
-                # 1. 종목 코드 찾기
                 code, found_name = find_ticker_smart(target_name, krx_list)
-                
                 if "실패" in found_name:
                     st.warning(f"'{target_name}' 코드를 못 찾았습니다.")
                 else:
                     st.success(f"🔍 검색: **{found_name} ({code})**")
                     try:
-                        # 2. [수정됨] FinanceDataReader로 차트 데이터 가져오기 (훨씬 안정적)
-                        # 최근 6개월 데이터
-                        start_dt = (datetime.today() - timedelta(days=180)).strftime('%Y-%m-%d')
-                        chart_df = fdr.DataReader(code, start_dt)
-                        
-                        if not chart_df.empty:
-                            st.line_chart(chart_df['Close'], color="#FF0000")
-                            st.caption("📉 붉은 선은 종가(Close) 차트입니다.")
+                        chart_data = yf.download(code, start=(datetime.today()-timedelta(days=180)), progress=False)
+                        if not chart_data.empty:
+                            if isinstance(chart_data.columns, pd.MultiIndex):
+                                close_data = chart_data.xs('Close', axis=1, level=0)
+                            else:
+                                close_data = chart_data['Close']
+                            st.line_chart(close_data, color="#FF0000")
                         else:
-                            st.warning("차트 데이터가 없습니다. (거래 정지 등 확인 필요)")
-                    except Exception as e:
-                        st.error(f"차트 로딩 실패: {e}")
+                            st.warning("차트 데이터가 없습니다.")
+                    except:
+                        st.error("차트 로딩 실패")
         else:
             st.success("손실 기록이 없습니다! 훌륭합니다.")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
+
