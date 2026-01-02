@@ -4,3 +4,4 @@ st-gsheets-connection
 yfinance
 finance-datareader
 matplotlib
+lxml
