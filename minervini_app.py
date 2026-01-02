@@ -41,7 +41,7 @@ def find_ticker_smart(name, krx_list):
         
     return name, "검색 실패"
 
-# --- [NEW] 마크 미너비니 PF 점수표 표시 함수 ---
+# --- 마크 미너비니 PF 점수표 표시 함수 ---
 def show_pf_guide():
     with st.expander("ℹ️ 마크 미너비니의 PF(프로핏 팩터) 점수표 보기", expanded=False):
         st.markdown("""
@@ -172,7 +172,7 @@ if not df.empty:
         monthly_sum = df.groupby('YearMonth')['P_L_Amount'].sum()
         st.bar_chart(monthly_sum)
 
-    # === TAB 2: 월별 상세 분석 (점수표 추가됨) ===
+    # === TAB 2: 월별 상세 분석 ===
     with tab2:
         st.subheader("📅 월별 상세 성적표")
         monthly_stats = []
@@ -180,4 +180,88 @@ if not df.empty:
             g_wins = group[group['ROI_Percent'] > 0]
             g_losses = group[group['ROI_Percent'] <= 0]
             
-            gross_profit = group[group['P_L_Amount'] > 0]['P_L
+            # [수정완료] 잘렸던 코드를 완벽하게 복구했습니다
+            gross_profit = group[group['P_L_Amount'] > 0]['P_L_Amount'].sum()
+            gross_loss = abs(group[group['P_L_Amount'] <= 0]['P_L_Amount'].sum())
+            pf = gross_profit / gross_loss if gross_loss > 0 else 0
+            
+            m_avg_gain = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
+            m_avg_loss = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
+            m_wl_ratio = m_avg_gain / m_avg_loss if m_avg_loss != 0 else 0
+            
+            monthly_stats.append({
+                "기간": ym, 
+                "총 손익": group['P_L_Amount'].sum(), 
+                "거래수": f"{len(group)}회",
+                "승률": f"{(len(g_wins)/len(group))*100:.1f}%", 
+                "평균수익": f"+{m_avg_gain:.2f}%",
+                "평균손실": f"-{m_avg_loss:.2f}%", 
+                "손익비": f"{m_wl_ratio:.2f}",
+                "PF": f"{pf:.2f}"
+            })
+        m_df = pd.DataFrame(monthly_stats).sort_values("기간", ascending=False)
+        st.dataframe(m_df.style.format({"총 손익": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='RdYlGn', vmin=-100000, vmax=100000), use_container_width=True)
+        
+        show_pf_guide()
+
+    # === TAB 3: 연도별 분석 ===
+    with tab3:
+        st.subheader("📆 연도별 종합 성적표")
+        yearly_stats = []
+        for y, group in df.groupby('Year'):
+            g_wins = group[group['ROI_Percent'] > 0]; g_losses = group[group['ROI_Percent'] <= 0]
+            y_win_rate = (len(g_wins) / len(group)) * 100
+            y_avg_gain = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
+            y_avg_loss = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
+            y_wl_ratio = y_avg_gain / y_avg_loss if y_avg_loss != 0 else 0
+            y_profit_factor = g_wins['P_L_Amount'].sum() / abs(g_losses['P_L_Amount'].sum()) if g_losses['P_L_Amount'].sum() != 0 else 0
+            
+            yearly_stats.append({
+                "연도": y, "총 손익": group['P_L_Amount'].sum(), "총 거래수": f"{len(group)}회",
+                "승률": f"{y_win_rate:.1f}%", "손익비": f"{y_wl_ratio:.2f}", "PF": f"{y_profit_factor:.2f}"
+            })
+        y_df = pd.DataFrame(yearly_stats).sort_values("연도", ascending=False)
+        st.dataframe(y_df.style.format({"총 손익": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
+        
+        show_pf_guide()
+
+    # === TAB 4: 데이터 원본 ===
+    with tab4:
+        st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
+
+    # === TAB 5: 오답 노트 ===
+    with tab5:
+        st.subheader("🚩 오답 노트 & 차트 복기")
+        losses = df[df['ROI_Percent'] < 0].sort_values('Date', ascending=False)
+        
+        if not losses.empty:
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                target_name = st.selectbox("손실 종목 선택", losses['Ticker'].unique())
+                row = losses[losses['Ticker'] == target_name].iloc[0]
+                st.error(f"손익: {row['P_L_Amount']:,.0f}원 ({row['ROI_Percent']}%)")
+                st.info(f"메모: {row['Memo']}")
+                
+            with c2:
+                code, found_name = find_ticker_smart(target_name, krx_list)
+                if "실패" in found_name:
+                    st.warning(f"'{target_name}' 코드를 못 찾았습니다.")
+                else:
+                    st.success(f"🔍 검색: **{found_name} ({code})**")
+                    try:
+                        chart_data = yf.download(code, start=(datetime.today()-timedelta(days=180)), progress=False)
+                        if not chart_data.empty:
+                            if isinstance(chart_data.columns, pd.MultiIndex):
+                                close_data = chart_data.xs('Close', axis=1, level=0)
+                            else:
+                                close_data = chart_data['Close']
+                            st.line_chart(close_data, color="#FF0000")
+                        else:
+                            st.warning("차트 데이터가 없습니다.")
+                    except:
+                        st.error("차트 로딩 실패")
+        else:
+            st.success("손실 기록이 없습니다! 훌륭합니다.")
+
+else:
+    st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
