@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import yfinance as yf
-import FinanceDataReader as fdr
 import altair as alt
-from datetime import datetime, timedelta
+from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 
 # 1. 페이지 설정
@@ -12,165 +12,214 @@ st.set_page_config(page_title="Trading Master Dashboard", page_icon="💎", layo
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- [핵심] 한국 종목 리스트 가져오기 ---
-@st.cache_data(ttl=86400)
-def get_krx_list():
-    try:
-        # KRX 전체 리스트 가져오기
-        df = fdr.StockListing('KRX')
-        return df[['Code', 'Name', 'Market']]
-    except:
-        return pd.DataFrame()
-
 def load_data():
     try:
         df = conn.read(worksheet=0, ttl=0)
         if df.empty:
              return pd.DataFrame(columns=['Date', 'Ticker', 'P_L_Amount', 'ROI_Percent', 'Memo'])
+        
         df = df.dropna(subset=['Date'])
-        df['P_L_Amount'] = pd.to_numeric(df['P_L_Amount'].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-        df['ROI_Percent'] = pd.to_numeric(df['ROI_Percent'].astype(str).str.replace('%', ''), errors='coerce').fillna(0)
+        
+        # 숫자 변환
+        if 'P_L_Amount' in df.columns:
+            df['P_L_Amount'] = df['P_L_Amount'].astype(str).str.replace(',', '')
+            df['P_L_Amount'] = pd.to_numeric(df['P_L_Amount'], errors='coerce').fillna(0)
+        
+        if 'ROI_Percent' in df.columns:
+            df['ROI_Percent'] = df['ROI_Percent'].astype(str).str.replace('%', '')
+            df['ROI_Percent'] = pd.to_numeric(df['ROI_Percent'], errors='coerce').fillna(0)
+        
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         return df
-    except:
+    except Exception as e:
         return pd.DataFrame(columns=['Date', 'Ticker', 'P_L_Amount', 'ROI_Percent', 'Memo'])
 
 df = load_data()
-krx_list = get_krx_list()
 
-# --- [스마트 검색] 종목명으로 코드 찾기 (포함 검색) ---
-def find_ticker_smart(name):
-    if krx_list.empty:
-        return name, "목록 로딩 실패"
-    
-    # 1. 정확히 일치하는 경우
-    exact = krx_list[krx_list['Name'] == name]
-    if not exact.empty:
-        row = exact.iloc[0]
-        suffix = ".KS" if row['Market'] in ['KOSPI', 'KOSPI200'] else ".KQ"
-        return row['Code'] + suffix, row['Name']
-    
-    # 2. 글자가 포함된 경우 (예: '삼성' -> '삼성전자' 검색)
-    contains = krx_list[krx_list['Name'].str.contains(name, na=False)]
-    if not contains.empty:
-        # 가장 짧은 이름이 보통 대장주임 (예: '카카오' vs '카카오뱅크')
-        best_match = contains.sort_values(by="Name", key=lambda x: x.str.len()).iloc[0]
-        suffix = ".KS" if best_match['Market'] in ['KOSPI', 'KOSPI200'] else ".KQ"
-        return best_match['Code'] + suffix, best_match['Name']
-        
-    return name, "검색 실패"
-
-# --- [사이드바] 입력 ---
-with st.sidebar.form("input", clear_on_submit=True):
-    st.header("📝 매매 기록")
+# --- [사이드바] 입력 양식 ---
+st.sidebar.header("📝 매매 기록 입력")
+with st.sidebar.form("quick_input", clear_on_submit=True):
     date = st.date_input("일자", datetime.today())
-    ticker = st.text_input("종목명 (예: 삼성전자)").strip()
-    pn_l = st.number_input("손익금", value=0)
-    roi = st.number_input("수익률(%)", value=0.0, format="%.2f")
+    ticker = st.text_input("종목명").upper()
+    pn_l = st.number_input("손익금 (원)", value=0)
+    roi = st.number_input("수익률 (%)", value=0.0, format="%.2f")
     memo = st.text_input("메모")
-    if st.form_submit_button("저장"):
-        new_row = pd.DataFrame([{'Date': date.strftime('%Y-%m-%d'), 'Ticker': ticker, 'P_L_Amount': pn_l, 'ROI_Percent': roi, 'Memo': memo}])
-        conn.update(worksheet=0, data=pd.concat([load_data(), new_row], ignore_index=True))
-        st.success("저장 완료!"); st.rerun()
+    submit = st.form_submit_button("기록 저장")
+
+    if submit:
+        if ticker:
+            new_data = pd.DataFrame([{
+                'Date': date.strftime('%Y-%m-%d'),
+                'Ticker': ticker,
+                'P_L_Amount': pn_l,
+                'ROI_Percent': roi,
+                'Memo': memo
+            }])
+            
+            if df.empty:
+                updated_df = new_data
+            else:
+                # 날짜 형식을 문자로 통일해서 합치기
+                df_temp = load_data()
+                df_temp['Date'] = df_temp['Date'].dt.strftime('%Y-%m-%d')
+                updated_df = pd.concat([df_temp, new_data], ignore_index=True)
+
+            conn.update(worksheet=0, data=updated_df)
+            st.success(f"✅ {ticker} 저장 완료!")
+            st.rerun()
+        else:
+            st.error("종목명을 입력해주세요.")
 
 # --- [메인 화면] ---
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 차트", "📅 월별", "📆 연도별", "📋 원본", "❌ 오답노트"])
+    # 탭 구성
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 차트 대시보드", "📅 월별 분석", "📆 연도별 분석", "📋 데이터 원본"])
     
-    # 데이터 전처리
-    daily_df = df.groupby('Date')['P_L_Amount'].sum().reset_index().sort_values('Date')
-    daily_df['Cumulative'] = daily_df['P_L_Amount'].cumsum()
+    # 공통 계산
+    df['Year'] = df['Date'].dt.year
+    df['YearMonth'] = df['Date'].dt.strftime('%Y-%m')
+    
+    total_trades = len(df)
+    wins = df[df['ROI_Percent'] > 0]
+    losses = df[df['ROI_Percent'] <= 0]
+    
+    # 승률
+    win_rate = (len(wins) / total_trades) * 100 if total_trades > 0 else 0
+    
+    # 평균 수익/손실
+    avg_win = wins['ROI_Percent'].mean() if not wins.empty else 0
+    avg_loss = abs(losses['ROI_Percent'].mean()) if not losses.empty else 0
+    
+    # 손익비 (Profit Factor가 아닌 평균손익비)
+    risk_reward_ratio = avg_win / avg_loss if avg_loss > 0 else 0
+    
+    # 평균 수익률
+    avg_roi = df['ROI_Percent'].mean()
 
-    # === TAB 1: 차트 (수정: 선 그래프로 변경) ===
+    # === TAB 1: 차트 대시보드 ===
     with tab1:
-        st.subheader("🚀 내 계좌 vs KOSPI")
+        # 상단 요약 카드 (요청하신 대로 변경: 최고/최악 삭제 -> 평균수익/손익비 추가)
+        st.subheader("📍 Overall Performance")
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        kpi1.metric("총 누적 손익", f"{df['P_L_Amount'].sum():,.0f}원")
+        kpi2.metric("승률 (Win Rate)", f"{win_rate:.1f}%")
+        kpi3.metric("평균 수익률", f"{avg_roi:.2f}%")
+        kpi4.metric("평균 손익비", f"{risk_reward_ratio:.2f}")
+        
+        st.divider()
+        
+        # [NEW] 자산 곡선 vs 코스피 지수 비교
+        st.subheader("🚀 내 계좌 vs KOSPI 지수")
+        
+        # 1. 내 자산 데이터 준비
+        chart_data = df.sort_values('Date').copy()
+        chart_data['Cumulative'] = chart_data['P_L_Amount'].cumsum()
+        
+        # 2. 코스피 데이터 가져오기 (yfinance)
         try:
-            # KOSPI 지수 로딩
-            start = daily_df['Date'].min().strftime('%Y-%m-%d')
-            kospi = fdr.DataReader('KS11', start).reset_index()
-            kospi = kospi[['Date', 'Close']]
-            kospi.columns = ['Date', 'KOSPI']
+            start_date = chart_data['Date'].min()
+            end_date = datetime.today()
+            kospi = yf.download("^KS11", start=start_date, end=end_date, progress=False)
             
-            # [변경점] mark_area(면적) -> mark_line(선)으로 변경하여 깔끔하게!
-            base = alt.Chart(daily_df).encode(x='Date:T')
-            my_chart = base.mark_line(color='#00AA00', strokeWidth=3).encode(
-                y=alt.Y('Cumulative:Q', title='내 수익 (원)'),
+            # yfinance 데이터 구조 처리
+            if isinstance(kospi.columns, pd.MultiIndex):
+                kospi = kospi.xs('Close', axis=1, level=0) # 종가만 가져오기
+            elif 'Close' in kospi.columns:
+                kospi = kospi[['Close']]
+                
+            kospi = kospi.reset_index()
+            # 날짜 컬럼 이름 통일 및 시간대 제거
+            date_col = 'Date' if 'Date' in kospi.columns else kospi.columns[0]
+            kospi[date_col] = pd.to_datetime(kospi[date_col]).dt.tz_localize(None)
+            kospi.columns = ['Date', 'KOSPI'] # 컬럼명 단순화
+            
+        except Exception as e:
+            kospi = pd.DataFrame()
+
+        # 3. 차트 그리기 (Altair)
+        if not kospi.empty:
+            # 내 계좌 (영역 차트)
+            base = alt.Chart(chart_data).encode(x='Date:T')
+            my_chart = base.mark_area(opacity=0.3, color='#00FF00').encode(
+                y=alt.Y('Cumulative:Q', title='내 누적 수익 (원)'),
                 tooltip=['Date', 'Cumulative']
             )
             
-            market_chart = alt.Chart(kospi).mark_line(color='#FF4444', strokeWidth=2, strokeDash=[5,5]).encode(
-                x='Date:T', 
+            # 코스피 (선 차트 - 오른쪽 축 사용)
+            kospi_base = alt.Chart(kospi).encode(x='Date:T')
+            kospi_chart = kospi_base.mark_line(color='red').encode(
                 y=alt.Y('KOSPI:Q', title='KOSPI 지수', scale=alt.Scale(zero=False)),
                 tooltip=['Date', 'KOSPI']
             )
             
-            st.altair_chart(alt.layer(my_chart, market_chart).resolve_scale(y='independent'), use_container_width=True)
-            st.caption("🟢 초록색 실선: 내 수익 / 🔴 빨간색 점선: KOSPI 지수")
+            # 두 차트 합치기
+            combined_chart = alt.layer(my_chart, kospi_chart).resolve_scale(
+                y='independent'
+            ).properties(height=400)
             
-        except Exception as e:
-            st.line_chart(daily_df.set_index('Date')['Cumulative'])
-            st.caption(f"차트 로딩 중 경미한 오류: {e}")
-
-        # 지표 표시
-        col1, col2, col3 = st.columns(3)
-        col1.metric("총 손익", f"{df['P_L_Amount'].sum():,.0f}원")
-        col2.metric("승률", f"{(len(df[df['ROI_Percent']>0])/len(df)*100):.1f}%")
-        col3.metric("평균 수익률", f"{df['ROI_Percent'].mean():.2f}%")
-
-    # === TAB 2, 3, 4: 표 색상 오류 해결 ===
-    with tab2:
-        st.subheader("월별 분석")
-        monthly = df.groupby(df['Date'].dt.strftime('%Y-%m'))['P_L_Amount'].sum().reset_index()
-        st.bar_chart(monthly.set_index('Date'))
-        
-    with tab3:
-        st.subheader("연도별 분석")
-        yearly = df.groupby(df['Date'].dt.year)['P_L_Amount'].sum().reset_index()
-        yearly.columns = ['Year', 'Total_PL']
-        # matplotlib 설치 후 정상 작동하는 코드
-        st.dataframe(yearly.style.format({"Total_PL": "{:,.0f}원"}).background_gradient(subset=['Total_PL'], cmap='Greens'), use_container_width=True)
-        
-    with tab4:
-        st.dataframe(df.sort_values('Date', ascending=False))
-
-    # === TAB 5: 오답 노트 (스마트 검색 적용) ===
-    with tab5:
-        st.subheader("🚩 오답 노트 & 차트 복기")
-        # 손실 종목만 필터링
-        losses = df[df['ROI_Percent'] < 0].sort_values('Date', ascending=False)
-        
-        if not losses.empty:
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                target_name = st.selectbox("종목 선택", losses['Ticker'].unique())
-                row = losses[losses['Ticker'] == target_name].iloc[0]
-                st.error(f"손익: {row['P_L_Amount']:,.0f}원 ({row['ROI_Percent']}%)")
-                st.info(f"메모: {row['Memo']}")
-                
-            with c2:
-                # [스마트 검색 실행]
-                code, found_name = find_ticker_smart(target_name)
-                
-                if "실패" in found_name:
-                    st.warning(f"'{target_name}' 종목 코드를 찾을 수 없습니다. 정확한 이름을 입력했는지 확인해주세요.")
-                else:
-                    st.success(f"🔍 검색 결과: **{found_name} ({code})**")
-                    try:
-                        # 차트 데이터 다운로드
-                        chart_data = yf.download(code, start=(datetime.today()-timedelta(days=180)), progress=False)
-                        if not chart_data.empty:
-                            if isinstance(chart_data.columns, pd.MultiIndex):
-                                close_data = chart_data.xs('Close', axis=1, level=0)
-                            else:
-                                close_data = chart_data['Close']
-                            st.line_chart(close_data, color="#FF0000")
-                        else:
-                            st.warning("데이터가 없습니다. 상장 폐지되었거나 코드가 변경되었을 수 있습니다.")
-                    except:
-                        st.error("차트 데이터를 가져오는데 실패했습니다.")
+            st.altair_chart(combined_chart, use_container_width=True)
         else:
-            st.success("손실 난 종목이 없습니다! 훌륭합니다.")
+            # 코스피 로딩 실패 시 내 차트만 표시
+            st.line_chart(chart_data.set_index('Date')['Cumulative'])
+            st.caption("코스피 데이터를 불러오는 중이거나 실패했습니다.")
+
+        # [기존 기능 유지] 월별 막대 그래프
+        st.subheader("📊 월별 손익 흐름")
+        monthly_sum = df.groupby('YearMonth')['P_L_Amount'].sum()
+        st.bar_chart(monthly_sum)
+
+    # === TAB 2: 월별 상세 분석 ===
+    with tab2:
+        st.subheader("📅 월별 상세 성적표")
+        monthly_stats = []
+        for ym, group in df.groupby('YearMonth'):
+            g_wins = group[group['ROI_Percent'] > 0]
+            g_losses = group[group['ROI_Percent'] <= 0]
+            m_avg_gain = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
+            m_avg_loss = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
+            m_wl_ratio = m_avg_gain / m_avg_loss if m_avg_loss != 0 else 0
+            
+            monthly_stats.append({
+                "기간": ym,
+                "총 손익": group['P_L_Amount'].sum(),
+                "거래수": f"{len(group)}회",
+                "승률": f"{(len(g_wins)/len(group))*100:.1f}%",
+                "평균수익": f"+{m_avg_gain:.2f}%",
+                "평균손실": f"-{m_avg_loss:.2f}%",
+                "손익비": f"{m_wl_ratio:.2f}"
+            })
+        m_df = pd.DataFrame(monthly_stats).sort_values("기간", ascending=False)
+        st.dataframe(m_df.style.format({"총 손익": "{:,.0f}원"}), use_container_width=True)
+
+    # === TAB 3: 연도별 분석 ===
+    with tab3:
+        st.subheader("📆 연도별 종합 성적표")
+        yearly_stats = []
+        for y, group in df.groupby('Year'):
+            g_wins = group[group['ROI_Percent'] > 0]
+            g_losses = group[group['ROI_Percent'] <= 0]
+            y_win_rate = (len(g_wins) / len(group)) * 100
+            y_avg_gain = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
+            y_avg_loss = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
+            y_wl_ratio = y_avg_gain / y_avg_loss if y_avg_loss != 0 else 0
+            y_profit_factor = g_wins['P_L_Amount'].sum() / abs(g_losses['P_L_Amount'].sum()) if g_losses['P_L_Amount'].sum() != 0 else 0
+            
+            yearly_stats.append({
+                "연도": y,
+                "총 손익": group['P_L_Amount'].sum(),
+                "총 거래수": f"{len(group)}회",
+                "승률": f"{y_win_rate:.1f}%",
+                "손익비": f"{y_wl_ratio:.2f}",
+                "PF": f"{y_profit_factor:.2f}"
+            })
+        y_df = pd.DataFrame(yearly_stats).sort_values("연도", ascending=False)
+        st.dataframe(y_df.style.format({"총 손익": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
+
+    # === TAB 4: 데이터 원본 ===
+    with tab4:
+        st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
+
 else:
-    st.info("데이터를 입력해주세요.")
+    st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
