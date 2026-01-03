@@ -114,13 +114,11 @@ else:
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 추가: 수익쿠션
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 차트 대시보드", "📅 월별 분석", "📆 연도별 분석", "📋 데이터 원본", "❌ 습관 분석", "🛡️ 수익쿠션"])
     
     df['Year'] = df['Date'].dt.year
     df['YearMonth'] = df['Date'].dt.strftime('%Y-%m')
     
-    # 공통 통계
     total_trades = len(df)
     wins = df[df['ROI_Percent'] > 0]
     losses = df[df['ROI_Percent'] <= 0]
@@ -135,7 +133,6 @@ if not df.empty:
         kpi2.metric("승률", f"{win_rate:.1f}%")
         kpi3.metric("평균 수익률", f"{avg_roi:.2f}%")
         
-        # 손익비 계산
         avg_loss_val = abs(losses['ROI_Percent'].mean()) if not losses.empty else 0
         avg_win_val = wins['ROI_Percent'].mean() if not wins.empty else 0
         rr = avg_win_val / avg_loss_val if avg_loss_val > 0 else 0
@@ -143,23 +140,19 @@ if not df.empty:
         
         st.divider()
         st.subheader("🚀 내 계좌 vs KOSPI 지수")
-        
         daily_df = df.groupby('Date')['P_L_Amount'].sum().reset_index().sort_values('Date')
         daily_df['Cumulative'] = daily_df['P_L_Amount'].cumsum()
-        
         try:
             start = daily_df['Date'].min().strftime('%Y-%m-%d')
             kospi = yf.download("^KS11", start=start, progress=False)['Close'].reset_index()
             kospi.columns = ['Date', 'KOSPI']
             kospi['Date'] = pd.to_datetime(kospi['Date']).dt.tz_localize(None)
-            
             base = alt.Chart(daily_df).encode(x='Date:T')
             my_chart = base.mark_line(color='#00AA00', strokeWidth=3).encode(y=alt.Y('Cumulative:Q', title='내 수익'), tooltip=['Date', 'Cumulative'])
             kospi_chart = alt.Chart(kospi).mark_line(color='#FF4444', strokeDash=[5,5]).encode(x='Date:T', y=alt.Y('KOSPI:Q', title='KOSPI', scale=alt.Scale(zero=False)))
             st.altair_chart(alt.layer(my_chart, kospi_chart).resolve_scale(y='independent'), use_container_width=True)
         except:
             st.line_chart(daily_df.set_index('Date')['Cumulative'])
-        
         st.subheader("📊 월별 손익 흐름")
         st.bar_chart(df.groupby('YearMonth')['P_L_Amount'].sum())
 
@@ -245,17 +238,14 @@ if not df.empty:
         else:
             st.success("손실 기록이 없습니다!")
 
-    # === [NEW] TAB 6: 수익 쿠션 계산기 ===
+    # === [NEW] TAB 6: 수익 쿠션 계산기 (러프한 계산 기능 추가) ===
     with tab6:
         st.subheader("🛡️ 수익 쿠션 (Profit Cushion) 계산기")
-        st.markdown("""
-        > **수익 쿠션이란?** > 미너비니는 **"시장에서 번 돈(Open Profit + Realized Profit)"**으로만 리스크를 감당합니다.  
-        > 내 원금(Principal)을 건드리지 않고 매매할 수 있는 여유 자금을 뜻합니다.
-        """)
+        st.caption("현재 보유 중인 종목의 총 매입금액을 입력하면, 자동으로 오픈 리스크(Open Risk)를 계산해 줍니다.")
         
         st.divider()
         
-        # 1. 자동 계산 데이터 (올해 실현 손익)
+        # 1. 올해 실현 손익 (자동)
         this_year = datetime.now().year
         ytd_df = df[df['Year'] == this_year]
         realized_ytd = ytd_df['P_L_Amount'].sum()
@@ -263,14 +253,30 @@ if not df.empty:
         col_calc1, col_calc2 = st.columns(2)
         
         with col_calc1:
-            st.write("📊 **입력 정보 (현재 보유 중인 포지션)**")
-            open_risk = st.number_input("총 오픈 리스크 (손절 시 잃을 금액 합계)", min_value=0, value=0, help="모든 보유 종목이 손절가를 건드렸을 때 잃게 되는 총 금액 (절대값)")
-            open_profit = st.number_input("총 미실현 수익 (현재 평가 수익금)", value=0, help="현재 보유 종목들의 평가 수익 합계 (마이너스면 음수 입력)")
+            st.write("📊 **포지션 정보 입력**")
+            
+            # 입력 방식 선택 (라디오 버튼)
+            calc_mode = st.radio("계산 방식 선택", ["⚡ 간편 입력 (총 매입금액만 입력)", "📝 상세 입력 (리스크 직접 설정)"], horizontal=True)
+            
+            if calc_mode == "⚡ 간편 입력 (총 매입금액만 입력)":
+                total_buy = st.number_input("총 매입금액 합계 (원)", min_value=0, value=0, step=1000000)
+                risk_pct = st.number_input("예상 손절률 (%)", value=6.0, step=0.5, help="평균적으로 적용할 손절 %입니다. (기본값: -6%)")
+                
+                # 자동 계산된 리스크
+                open_risk = total_buy * (risk_pct / 100)
+                st.info(f"💡 예상 오픈 리스크: **-{open_risk:,.0f}원** (매입금액의 {risk_pct}%)")
+                
+            else:
+                # 상세 입력 모드 (기존 방식)
+                open_risk = st.number_input("총 오픈 리스크 (손절 시 잃을 금액)", min_value=0, value=0)
+                st.caption("※ 각 종목별 손절 금액을 모두 더해서 입력하세요.")
+
+            open_profit = st.number_input("총 미실현 수익 (현재 평가수익금)", value=0)
             
         with col_calc2:
-            st.write("🧮 **쿠션 계산 결과**")
+            st.write("🧮 **쿠션 진단 결과**")
             
-            # 쿠션 공식: (실현수익 + 미실현수익) - 오픈리스크
+            # 쿠션 계산
             cushion = realized_ytd + open_profit - open_risk
             
             st.markdown(f"**💰 올해 실현 수익 (YTD):** `{realized_ytd:,.0f}원`")
@@ -280,14 +286,16 @@ if not df.empty:
             
             if cushion > 0:
                 st.success(f"### 🎉 수익 쿠션: +{cushion:,.0f}원")
-                st.caption("✅ **안전함(Safe):** 시장에서 번 돈으로 리스크를 커버하고 있습니다. 공격적인 매매가 가능합니다.")
+                st.write("✅ **안전함 (Safe)**")
+                st.write("시장에서 번 돈으로 리스크를 완벽하게 커버하고 있습니다.")
             elif cushion == 0:
                 st.warning(f"### 😐 수익 쿠션: 0원 (본전)")
-                st.caption("⚠️ **주의(Caution):** 벼랑 끝입니다. 여기서 손실이 나면 원금이 까입니다.")
+                st.write("⚠️ **주의 (Caution)**")
+                st.write("여유 자금이 없습니다. 손실이 나면 원금이 줄어듭니다.")
             else:
-                st.error(f"### 🚨 수익 쿠션: {cushion:,.0f}원 (원금 손실 중)")
-                st.caption("🛑 **위험(Danger):** 원금을 까먹고 있습니다. 포지션 크기를 줄이고(Scale Back) 수비적으로 매매하세요.")
+                st.error(f"### 🚨 수익 쿠션: {cushion:,.0f}원")
+                st.write("🛑 **위험 (Danger)**")
+                st.write("원금 손실 구간입니다. 포지션 크기를 줄이고 방어적으로 매매하세요.")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
-
