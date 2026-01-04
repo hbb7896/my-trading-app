@@ -49,7 +49,7 @@ def load_data():
         
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         
-        # 습관 분석용 컬럼 처리
+        # 습관 분석용 컬럼 처리 (과거 데이터는 None으로 처리)
         if 'Mistake_Tags' not in df.columns: df['Mistake_Tags'] = None
         if 'Emotion' not in df.columns: df['Emotion'] = None
         if 'Discipline' not in df.columns: df['Discipline'] = None
@@ -180,7 +180,17 @@ if not df.empty:
                 "손익비": float(m_wl_ratio),
                 "PF": float(pf)
             })
-        st.dataframe(pd.DataFrame(monthly_stats).sort_values("기간", ascending=False).style.format({"총 손익": "{:,.0f}원", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}"}).background_gradient(subset=['총 손익'], cmap='RdYlGn'), use_container_width=True)
+        
+        m_df = pd.DataFrame(monthly_stats).sort_values("기간", ascending=False)
+        st.dataframe(
+            m_df.style.format({
+                "총 손익": "{:,.0f}원", 
+                "승률": "{:.1f}%", 
+                "손익비": "{:.2f}", 
+                "PF": "{:.2f}"
+            }).background_gradient(subset=['총 손익'], cmap='RdYlGn'), 
+            use_container_width=True
+        )
         show_pf_guide()
 
     # === TAB 3: 연도별 ===
@@ -204,7 +214,17 @@ if not df.empty:
                 "손익비": float(y_wl_ratio),
                 "PF": float(pf)
             })
-        st.dataframe(pd.DataFrame(yearly_stats).sort_values("연도", ascending=False).style.format({"총 손익": "{:,.0f}원", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
+            
+        y_df = pd.DataFrame(yearly_stats).sort_values("연도", ascending=False)
+        st.dataframe(
+            y_df.style.format({
+                "총 손익": "{:,.0f}원", 
+                "승률": "{:.1f}%", 
+                "손익비": "{:.2f}", 
+                "PF": "{:.2f}"
+            }).background_gradient(subset=['총 손익'], cmap='Greens'), 
+            use_container_width=True
+        )
         show_pf_guide()
 
     # === TAB 4: 원본 ===
@@ -221,7 +241,8 @@ if not df.empty:
         with c1:
             st.write("🛑 **손실 원인 TOP 5 (신규)**")
             if not valid_tags.empty:
-                tag_counts = valid_tags.astype(str).str.split(', ').explode().value_counts().reset_index()
+                all_tags = valid_tags.astype(str).str.split(', ').explode()
+                tag_counts = all_tags.value_counts().reset_index()
                 tag_counts.columns = ['원인', '횟수']
                 base = alt.Chart(tag_counts).encode(x=alt.X('횟수:Q'), y=alt.Y('원인:N', sort='-x'), color=alt.condition(alt.datum.원인 == '정상매매', alt.value('green'), alt.value('red')))
                 st.altair_chart(base.mark_bar(), use_container_width=True)
@@ -249,7 +270,7 @@ if not df.empty:
                     c2.markdown(f"**⚖️ 원칙:** {disc_disp}"); st.info(f"📝 메모: {row['Memo']}")
         else: st.success("손실 기록이 없습니다!")
 
-    # === [NEW] TAB 6: 수익쿠션 계산기 (안전장치 추가) ===
+    # === TAB 6: 수익쿠션 계산기 (안전율 + 역산기능 포함) ===
     with tab6:
         st.subheader("🧮 수익 쿠션 계산기 (Position Sizing)")
         st.info("💡 **수익 쿠션:** 시장이 하락하면 수익금도 줄어듭니다. 이를 대비해 '안전율(보수적 계산)'을 적용하여 베팅 금액을 산출하세요.")
@@ -269,28 +290,33 @@ if not df.empty:
 
         st.divider()
         
-        # [NEW] 안전율 슬라이더
+        # 안전율 슬라이더
         st.subheader("🛡️ 안전한 베팅 금액 계산 (역산)")
         safety_margin = st.slider("현재 수익금의 몇 %만 쿠션으로 사용할까요? (안전율)", 10, 100, 50, 10)
         
         if open_profit > 0:
-            # 안전하게 사용할 수 있는 쿠션 금액 (예: 수익의 50%만 인정)
             safe_cushion = open_profit * (safety_margin / 100)
-            
-            # 신규 진입 시 손절폭
             target_sl_pct = st.slider("신규 진입 종목의 손절폭 (%)", 1.0, 30.0, 5.0, 0.5)
-            
-            # 투자가능금액 = (보수적 쿠션) / 손절률
             investable = safe_cushion / (target_sl_pct / 100)
             
-            st.success(f"""
-            #### 💰 추천 매수 금액: **:blue[{investable:,.0f}원]**
+            # 상태 판독
+            cushion_percent = (open_profit / total_account) * 100
+            st.markdown(f"""
+            #### 📊 분석 결과
+            * 현재 수익 쿠션: **{cushion_percent:.2f}%**
+            * 확보된 안전 쿠션: **{safe_cushion:,.0f}원** (수익금의 {safety_margin}%)
             
-            * 현재 수익금 **{open_profit:,.0f}원** 중 **{safety_margin}%({safe_cushion:,.0f}원)**만 담보로 잡았습니다.
-            * 만약 이 종목에서 **-{target_sl_pct}%** 손절을 쳐도, 내 수익금의 일부만 줄어들 뿐 **원금은 100% 안전**합니다.
+            #### 💰 추천 매수 금액: **:blue[{investable:,.0f}원]**
+            * 손절을 **-{target_sl_pct}%**로 잡았을 때, **{investable:,.0f}원**어치를 사면
+            * 손절 시 정확히 안전 쿠션(**{safe_cushion:,.0f}원**) 내에서 방어됩니다.
             """)
+            
+            if open_profit > open_risk:
+                st.success("💎 **House Money 상태!** 원금 손실 위험 0입니다.")
+            else:
+                st.warning(f"⚠️ **주의 필요:** 현재 리스크(-{open_risk:,.0f}원)가 수익금보다 큽니다.")
         else:
-            st.warning("⚠️ 현재 수익금(쿠션)이 없어서 계산할 수 없습니다. (원금 방어에 집중하세요!)")
+            st.warning("⚠️ 현재 수익 쿠션(평가수익)이 없어서 계산할 수 없습니다. (원금 방어에 집중하세요!)")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
