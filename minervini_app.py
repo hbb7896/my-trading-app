@@ -49,7 +49,7 @@ def load_data():
         
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         
-        # [수정] 습관 분석용 컬럼이 없으면 'None(비어있음)'으로 처리 -> 과거 데이터 영향 X
+        # [수정됨] 과거 데이터는 강제로 채우지 않고 '비어있음(None)'으로 둠
         if 'Mistake_Tags' not in df.columns: df['Mistake_Tags'] = None
         if 'Emotion' not in df.columns: df['Emotion'] = None
         if 'Discipline' not in df.columns: df['Discipline'] = None
@@ -61,7 +61,7 @@ def load_data():
 df = load_data()
 krx_list = get_krx_list() 
 
-# --- 사이드바 입력 (기능 업그레이드) ---
+# --- 사이드바 입력 ---
 st.sidebar.header("📝 매매 기록 입력")
 with st.sidebar.form("quick_input", clear_on_submit=True):
     date = st.date_input("일자", datetime.today())
@@ -69,9 +69,9 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
     pn_l = st.number_input("손익금 (원)", value=0)
     roi = st.number_input("수익률 (%)", value=0.0, format="%.2f")
     
-    # [NEW] 습관 분석 입력 필드
     st.divider()
-    st.caption("🧠 습관 분석 (신규 입력부터 적용)")
+    st.caption("🧠 심리 및 원칙 분석 (신규 입력부터 적용)")
+    
     mistake_options = ["정상매매", "뇌동매매", "추격매수", "손절늦음", "익절너무빠름", "시장하락", "비중위반"]
     tags = st.multiselect("매매 특이사항", mistake_options, default=["정상매매"])
     tags_str = ", ".join(tags)
@@ -90,9 +90,9 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
                 'Ticker': ticker,
                 'P_L_Amount': pn_l,
                 'ROI_Percent': roi,
-                'Mistake_Tags': tags_str,   # 저장
-                'Emotion': emotion,         # 저장
-                'Discipline': discipline,   # 저장
+                'Mistake_Tags': tags_str,
+                'Emotion': emotion,
+                'Discipline': discipline,
                 'Memo': memo
             }])
             
@@ -107,9 +107,8 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
         else:
             st.error("종목명을 입력해주세요.")
 
-# [상태 표시]
 if krx_list.empty:
-    st.sidebar.caption("⚠️ 리스트 로딩 실패 (분석 기능은 정상)")
+    st.sidebar.caption("⚠️ 리스트 로딩 실패 (수동 입력만 가능)")
 else:
     st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 
@@ -121,6 +120,7 @@ if not df.empty:
     
     df['Year'] = df['Date'].dt.year
     df['YearMonth'] = df['Date'].dt.strftime('%Y-%m')
+    
     total_trades = len(df)
     wins = df[df['ROI_Percent'] > 0]
     losses = df[df['ROI_Percent'] <= 0]
@@ -130,7 +130,7 @@ if not df.empty:
     risk_reward_ratio = avg_win / avg_loss if avg_loss > 0 else 0
     avg_roi = df['ROI_Percent'].mean()
 
-    # === TAB 1: 차트 (사장님 원본 유지) ===
+    # === TAB 1: 차트 ===
     with tab1:
         st.subheader("📍 Overall Performance")
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
@@ -161,7 +161,7 @@ if not df.empty:
         st.subheader("📊 월별 손익 흐름")
         st.bar_chart(df.groupby('YearMonth')['P_L_Amount'].sum())
 
-    # === TAB 2: 월별 (사장님 원본 유지) ===
+    # === TAB 2: 월별 ===
     with tab2:
         st.subheader("📅 월별 상세 성적표")
         monthly_stats = []
@@ -176,7 +176,7 @@ if not df.empty:
         st.dataframe(pd.DataFrame(monthly_stats).sort_values("기간", ascending=False).style.format({"총 손익": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='RdYlGn'), use_container_width=True)
         show_pf_guide()
 
-    # === TAB 3: 연도별 (사장님 원본 유지) ===
+    # === TAB 3: 연도별 ===
     with tab3:
         st.subheader("📆 연도별 종합 성적표")
         yearly_stats = []
@@ -191,24 +191,26 @@ if not df.empty:
         st.dataframe(pd.DataFrame(yearly_stats).sort_values("연도", ascending=False).style.format({"총 손익": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
         show_pf_guide()
 
-    # === TAB 4: 원본 (사장님 원본 유지) ===
+    # === TAB 4: 원본 ===
     with tab4:
         st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
 
-    # === [수정된] TAB 5: 습관 분석 대시보드 (차트 제거 -> 통계 추가) ===
+    # === [수정된] TAB 5: 습관 분석 (과거 데이터 제외) ===
     with tab5:
         st.subheader("🧠 나의 트레이딩 습관 분석 (오답노트)")
         
-        # [핵심] 값이 있는(신규 입력한) 데이터만 필터링
-        valid_df = df.dropna(subset=['Mistake_Tags', 'Discipline']) # 컬럼이 None인 옛날 데이터 제외
-        valid_df = valid_df[valid_df['Mistake_Tags'] != ""] # 빈 문자열 제외
+        # [김대리 수정] 데이터가 있는 행만 골라내기 (None, NaN 제거)
+        valid_tags = df['Mistake_Tags'].dropna()
+        valid_tags = valid_tags[valid_tags != ""] # 빈 문자열도 제거
+        
+        valid_disc = df['Discipline'].dropna()
+        valid_disc = valid_disc[valid_disc != ""]
 
         c1, c2 = st.columns(2)
         with c1:
-            st.write("🛑 **손실 원인 TOP 5 (신규 데이터)**")
-            if not valid_df.empty:
-                # 태그 쪼개서 카운트
-                all_tags = valid_df['Mistake_Tags'].astype(str).str.split(', ').explode()
+            st.write("🛑 **손실 원인 TOP 5**")
+            if not valid_tags.empty:
+                all_tags = valid_tags.astype(str).str.split(', ').explode()
                 tag_counts = all_tags.value_counts().reset_index()
                 tag_counts.columns = ['원인', '횟수']
                 
@@ -218,12 +220,12 @@ if not df.empty:
                 )
                 st.altair_chart(base.mark_bar(), use_container_width=True)
             else:
-                st.info("데이터가 쌓이면 '손실 원인' 그래프가 표시됩니다.")
+                st.info("아직 분석할 데이터가 없습니다. (과거 데이터 제외됨)")
 
         with c2:
-            st.write("⚖️ **원칙 준수율 (신규 데이터)**")
-            if not valid_df.empty:
-                d_counts = valid_df['Discipline'].value_counts().reset_index()
+            st.write("⚖️ **원칙 준수율**")
+            if not valid_disc.empty:
+                d_counts = valid_disc.value_counts().reset_index()
                 d_counts.columns = ['상태', '횟수']
                 pie = alt.Chart(d_counts).mark_arc(innerRadius=50).encode(
                     theta=alt.Theta(field="횟수", type="quantitative"),
@@ -231,24 +233,23 @@ if not df.empty:
                 )
                 st.altair_chart(pie, use_container_width=True)
             else:
-                st.info("데이터가 쌓이면 '원칙 준수율' 그래프가 표시됩니다.")
+                st.info("신규 매매부터 원칙 준수 여부가 표시됩니다.")
 
         st.divider()
-        st.write("📉 **손실 거래 복기 List**")
+        st.write("📉 **손실 거래 복기**")
         bad = df[df['ROI_Percent'] < 0].sort_values('Date', ascending=False)
-        
         if not bad.empty:
             for i, row in bad.iterrows():
-                # 상세 내용 표시 (데이터 없으면 - 로 표시)
-                tags_disp = row.get('Mistake_Tags') if row.get('Mistake_Tags') else "-"
-                emo_disp = row.get('Emotion') if row.get('Emotion') else "-"
-                disc_disp = row.get('Discipline') if row.get('Discipline') else "-"
-                
                 with st.expander(f"{row['Date'].strftime('%Y-%m-%d')} | {row['Ticker']} | {row['P_L_Amount']:,.0f}원 ({row['ROI_Percent']}%)"):
                     c1, c2 = st.columns(2)
-                    c1.markdown(f"**😡 원인:** {tags_disp}")
-                    c1.markdown(f"**🧠 감정:** {emo_disp}")
-                    c2.markdown(f"**⚖️ 원칙:** {disc_disp}")
+                    # 데이터가 없으면 '-' 표시
+                    tags_display = row.get('Mistake_Tags') if pd.notna(row.get('Mistake_Tags')) else "-"
+                    emo_display = row.get('Emotion') if pd.notna(row.get('Emotion')) else "-"
+                    disc_display = row.get('Discipline') if pd.notna(row.get('Discipline')) else "-"
+                    
+                    c1.markdown(f"**😡 원인:** {tags_display}")
+                    c1.markdown(f"**🧠 감정:** {emo_display}")
+                    c2.markdown(f"**⚖️ 원칙:** {disc_display}")
                     st.info(f"📝 메모: {row['Memo']}")
         else:
             st.success("손실 기록이 없습니다!")
