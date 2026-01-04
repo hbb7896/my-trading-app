@@ -13,6 +13,21 @@ st.set_page_config(page_title="Trading Master Dashboard", page_icon="💎", layo
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# --- [NEW] 설정값 불러오기 (Sheet2 사용) ---
+@st.cache_data(ttl=0)
+def load_settings():
+    try:
+        # 두 번째 시트(worksheet=1)에서 설정값을 읽어옴
+        df = conn.read(worksheet=1, ttl=0)
+        if not df.empty:
+            return df.iloc[0].to_dict() # 첫 번째 줄을 딕셔너리로 변환
+    except:
+        pass # 시트가 없거나 에러나면 그냥 기본값 사용
+    return {}
+
+# 설정값 로드 (없으면 빈 딕셔너리)
+saved_config = load_settings()
+
 # --- 한국 종목 리스트 ---
 @st.cache_data(ttl=3600)
 def get_krx_list():
@@ -49,7 +64,7 @@ def load_data():
         
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         
-        # 습관 분석용 컬럼 처리 (과거 데이터는 None으로 처리)
+        # 습관 분석용 컬럼 처리
         if 'Mistake_Tags' not in df.columns: df['Mistake_Tags'] = None
         if 'Emotion' not in df.columns: df['Emotion'] = None
         if 'Discipline' not in df.columns: df['Discipline'] = None
@@ -180,17 +195,7 @@ if not df.empty:
                 "손익비": float(m_wl_ratio),
                 "PF": float(pf)
             })
-        
-        m_df = pd.DataFrame(monthly_stats).sort_values("기간", ascending=False)
-        st.dataframe(
-            m_df.style.format({
-                "총 손익": "{:,.0f}원", 
-                "승률": "{:.1f}%", 
-                "손익비": "{:.2f}", 
-                "PF": "{:.2f}"
-            }).background_gradient(subset=['총 손익'], cmap='RdYlGn'), 
-            use_container_width=True
-        )
+        st.dataframe(pd.DataFrame(monthly_stats).sort_values("기간", ascending=False).style.format({"총 손익": "{:,.0f}원", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}"}).background_gradient(subset=['총 손익'], cmap='RdYlGn'), use_container_width=True)
         show_pf_guide()
 
     # === TAB 3: 연도별 ===
@@ -214,17 +219,7 @@ if not df.empty:
                 "손익비": float(y_wl_ratio),
                 "PF": float(pf)
             })
-            
-        y_df = pd.DataFrame(yearly_stats).sort_values("연도", ascending=False)
-        st.dataframe(
-            y_df.style.format({
-                "총 손익": "{:,.0f}원", 
-                "승률": "{:.1f}%", 
-                "손익비": "{:.2f}", 
-                "PF": "{:.2f}"
-            }).background_gradient(subset=['총 손익'], cmap='Greens'), 
-            use_container_width=True
-        )
+        st.dataframe(pd.DataFrame(yearly_stats).sort_values("연도", ascending=False).style.format({"총 손익": "{:,.0f}원", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
         show_pf_guide()
 
     # === TAB 4: 원본 ===
@@ -241,8 +236,7 @@ if not df.empty:
         with c1:
             st.write("🛑 **손실 원인 TOP 5 (신규)**")
             if not valid_tags.empty:
-                all_tags = valid_tags.astype(str).str.split(', ').explode()
-                tag_counts = all_tags.value_counts().reset_index()
+                tag_counts = valid_tags.astype(str).str.split(', ').explode().value_counts().reset_index()
                 tag_counts.columns = ['원인', '횟수']
                 base = alt.Chart(tag_counts).encode(x=alt.X('횟수:Q'), y=alt.Y('원인:N', sort='-x'), color=alt.condition(alt.datum.원인 == '정상매매', alt.value('green'), alt.value('red')))
                 st.altair_chart(base.mark_bar(), use_container_width=True)
@@ -270,25 +264,48 @@ if not df.empty:
                     c2.markdown(f"**⚖️ 원칙:** {disc_disp}"); st.info(f"📝 메모: {row['Memo']}")
         else: st.success("손실 기록이 없습니다!")
 
-    # === TAB 6: 수익쿠션 계산기 (안전율 + 역산기능 포함) ===
+    # === [NEW] TAB 6: 수익쿠션 계산기 (저장 기능 추가) ===
     with tab6:
         st.subheader("🧮 수익 쿠션 계산기 (Position Sizing)")
-        st.info("💡 **수익 쿠션:** 시장이 하락하면 수익금도 줄어듭니다. 이를 대비해 '안전율(보수적 계산)'을 적용하여 베팅 금액을 산출하세요.")
+        st.info("💡 **팁:** 값을 입력하고 아래 **[💾 설정 저장하기]** 버튼을 누르면, 앱을 껐다 켜도 값이 유지됩니다!")
         
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("### 1️⃣ 내 자산 입력")
-            total_account = st.number_input("총 추정자산 (예수금+주식)", value=10000000, step=100000)
-            open_profit = st.number_input("현재 총 수익금 (평가손익)", value=0, step=10000)
+        # 저장된 값 불러오기 (없으면 기본값)
+        default_account = float(saved_config.get('total_account', 10000000))
+        default_profit = float(saved_config.get('open_profit', 0))
+        default_buy = float(saved_config.get('current_buy_amt', 5000000))
+        default_loss_pct = float(saved_config.get('loss_cut_pct', 5.0))
+        
+        with st.form("cushion_form"):
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("### 1️⃣ 내 자산 입력")
+                total_account = st.number_input("총 추정자산 (예수금+주식)", value=default_account, step=100000)
+                open_profit = st.number_input("현재 총 수익금 (평가손익)", value=default_profit, step=10000)
+                
+            with c2:
+                st.markdown("### 2️⃣ 리스크 시뮬레이션")
+                current_buy_amt = st.number_input("현재 보유주식 총 매수금액", value=default_buy, step=100000)
+                loss_cut_pct = st.number_input("평균 손절 계획 (%)", value=default_loss_pct, step=0.5)
             
-        with c2:
-            st.markdown("### 2️⃣ 리스크 시뮬레이션")
-            current_buy_amt = st.number_input("현재 보유주식 총 매수금액", value=5000000, step=100000)
-            loss_cut_pct = st.number_input("평균 손절 계획 (%)", value=5.0, step=0.5)
-            open_risk = current_buy_amt * (loss_cut_pct / 100)
-            st.error(f"📉 예상 손실금: **-{open_risk:,.0f}원**")
+            # 저장 버튼
+            save_btn = st.form_submit_button("💾 설정 저장하기")
+            
+            if save_btn:
+                # 구글 시트 2번째 탭(worksheet=1)에 저장
+                new_config = pd.DataFrame([{
+                    'total_account': total_account,
+                    'open_profit': open_profit,
+                    'current_buy_amt': current_buy_amt,
+                    'loss_cut_pct': loss_cut_pct
+                }])
+                conn.update(worksheet=1, data=new_config)
+                st.toast("✅ 설정이 구글 시트에 저장되었습니다! (앱을 껐다 켜도 유지됩니다)")
+                st.rerun()
 
+        # 계산 및 표시
+        open_risk = current_buy_amt * (loss_cut_pct / 100)
         st.divider()
+        st.error(f"📉 모든 종목 손절 시 예상 손실금: **-{open_risk:,.0f}원**")
         
         # 안전율 슬라이더
         st.subheader("🛡️ 안전한 베팅 금액 계산 (역산)")
@@ -316,7 +333,7 @@ if not df.empty:
             else:
                 st.warning(f"⚠️ **주의 필요:** 현재 리스크(-{open_risk:,.0f}원)가 수익금보다 큽니다.")
         else:
-            st.warning("⚠️ 현재 수익 쿠션(평가수익)이 없어서 계산할 수 없습니다. (원금 방어에 집중하세요!)")
+            st.warning("⚠️ 현재 수익 쿠션(평가수익)이 없어서 계산할 수 없습니다.")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
