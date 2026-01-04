@@ -115,7 +115,7 @@ else:
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 차트", "📅 월별", "📆 연도별", "📋 원본", "❌ 습관분석", "🧮 수익쿠션"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 차트 대시보드", "📅 월별 분석", "📆 연도별 분석", "📋 데이터 원본", "❌ 습관 분석", "🧮 수익쿠션"])
     
     df['Year'] = df['Date'].dt.year
     df['YearMonth'] = df['Date'].dt.strftime('%Y-%m')
@@ -168,11 +168,9 @@ if not df.empty:
             gross_profit = group[group['P_L_Amount'] > 0]['P_L_Amount'].sum()
             gross_loss = abs(group[group['P_L_Amount'] <= 0]['P_L_Amount'].sum())
             pf = gross_profit / gross_loss if gross_loss > 0 else 0
-            
             m_avg_gain = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
             m_avg_loss = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
             m_wl_ratio = m_avg_gain / m_avg_loss if m_avg_loss > 0 else 0
-            
             monthly_stats.append({
                 "기간": str(ym), 
                 "총 손익": float(group['P_L_Amount'].sum()), 
@@ -180,17 +178,7 @@ if not df.empty:
                 "손익비": float(m_wl_ratio),
                 "PF": float(pf)
             })
-        
-        m_df = pd.DataFrame(monthly_stats).sort_values("기간", ascending=False)
-        st.dataframe(
-            m_df.style.format({
-                "총 손익": "{:,.0f}원", 
-                "승률": "{:.1f}%", 
-                "손익비": "{:.2f}",
-                "PF": "{:.2f}"
-            }).background_gradient(subset=['총 손익'], cmap='RdYlGn'), 
-            use_container_width=True
-        )
+        st.dataframe(pd.DataFrame(monthly_stats).sort_values("기간", ascending=False).style.format({"총 손익": "{:,.0f}원", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}"}).background_gradient(subset=['총 손익'], cmap='RdYlGn'), use_container_width=True)
         show_pf_guide()
 
     # === TAB 3: 연도별 ===
@@ -202,11 +190,9 @@ if not df.empty:
             gross_profit = group[group['P_L_Amount'] > 0]['P_L_Amount'].sum()
             gross_loss = abs(group[group['P_L_Amount'] <= 0]['P_L_Amount'].sum())
             pf = gross_profit / gross_loss if gross_loss > 0 else 0
-            
             y_avg_gain = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
             y_avg_loss = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
             y_wl_ratio = y_avg_gain / y_avg_loss if y_avg_loss > 0 else 0
-            
             yearly_stats.append({
                 "연도": int(y), 
                 "총 손익": float(group['P_L_Amount'].sum()), 
@@ -214,17 +200,7 @@ if not df.empty:
                 "손익비": float(y_wl_ratio),
                 "PF": float(pf)
             })
-            
-        y_df = pd.DataFrame(yearly_stats).sort_values("연도", ascending=False)
-        st.dataframe(
-            y_df.style.format({
-                "총 손익": "{:,.0f}원", 
-                "승률": "{:.1f}%", 
-                "손익비": "{:.2f}",
-                "PF": "{:.2f}"
-            }).background_gradient(subset=['총 손익'], cmap='Greens'), 
-            use_container_width=True
-        )
+        st.dataframe(pd.DataFrame(yearly_stats).sort_values("연도", ascending=False).style.format({"총 손익": "{:,.0f}원", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
         show_pf_guide()
 
     # === TAB 4: 원본 ===
@@ -234,93 +210,88 @@ if not df.empty:
     # === TAB 5: 습관 분석 ===
     with tab5:
         st.subheader("🧠 나의 트레이딩 습관 분석 (오답노트)")
-        
-        valid_tags = df['Mistake_Tags'].dropna()
-        valid_tags = valid_tags[valid_tags != ""]
-        valid_disc = df['Discipline'].dropna()
-        valid_disc = valid_disc[valid_disc != ""]
+        valid_tags = df['Mistake_Tags'].dropna(); valid_tags = valid_tags[valid_tags != ""]
+        valid_disc = df['Discipline'].dropna(); valid_disc = valid_disc[valid_disc != ""]
 
         c1, c2 = st.columns(2)
         with c1:
             st.write("🛑 **손실 원인 TOP 5 (신규)**")
             if not valid_tags.empty:
-                all_tags = valid_tags.astype(str).str.split(', ').explode()
-                tag_counts = all_tags.value_counts().reset_index()
+                tag_counts = valid_tags.astype(str).str.split(', ').explode().value_counts().reset_index()
                 tag_counts.columns = ['원인', '횟수']
-                base = alt.Chart(tag_counts).encode(
-                    x=alt.X('횟수:Q'), y=alt.Y('원인:N', sort='-x'),
-                    color=alt.condition(alt.datum.원인 == '정상매매', alt.value('green'), alt.value('red'))
-                )
+                base = alt.Chart(tag_counts).encode(x=alt.X('횟수:Q'), y=alt.Y('원인:N', sort='-x'), color=alt.condition(alt.datum.원인 == '정상매매', alt.value('green'), alt.value('red')))
                 st.altair_chart(base.mark_bar(), use_container_width=True)
-            else:
-                st.info("데이터가 쌓이면 그래프가 표시됩니다.")
+            else: st.info("데이터가 쌓이면 그래프가 표시됩니다.")
 
         with c2:
             st.write("⚖️ **원칙 준수율 (신규)**")
             if not valid_disc.empty:
                 d_counts = valid_disc.value_counts().reset_index()
                 d_counts.columns = ['상태', '횟수']
-                pie = alt.Chart(d_counts).mark_arc(innerRadius=50).encode(
-                    theta=alt.Theta(field="횟수", type="quantitative"),
-                    color=alt.Color(field="상태", type="nominal", scale=alt.Scale(range=['#ff4b4b', '#36bd62']))
-                )
+                pie = alt.Chart(d_counts).mark_arc(innerRadius=50).encode(theta=alt.Theta(field="횟수", type="quantitative"), color=alt.Color(field="상태", type="nominal", scale=alt.Scale(range=['#ff4b4b', '#36bd62'])))
                 st.altair_chart(pie, use_container_width=True)
-            else:
-                st.info("데이터가 쌓이면 그래프가 표시됩니다.")
+            else: st.info("데이터가 쌓이면 그래프가 표시됩니다.")
 
-        st.divider()
-        st.write("📉 **손실 거래 복기**")
+        st.divider(); st.write("📉 **손실 거래 복기**")
         bad = df[df['ROI_Percent'] < 0].sort_values('Date', ascending=False)
         if not bad.empty:
             for i, row in bad.iterrows():
                 tags_disp = row.get('Mistake_Tags') if row.get('Mistake_Tags') else "-"
                 emo_disp = row.get('Emotion') if row.get('Emotion') else "-"
                 disc_disp = row.get('Discipline') if row.get('Discipline') else "-"
-                
                 with st.expander(f"{row['Date'].strftime('%Y-%m-%d')} | {row['Ticker']} | {row['P_L_Amount']:,.0f}원 ({row['ROI_Percent']}%)"):
                     c1, c2 = st.columns(2)
-                    c1.markdown(f"**😡 원인:** {tags_disp}")
-                    c1.markdown(f"**🧠 감정:** {emo_disp}")
-                    c2.markdown(f"**⚖️ 원칙:** {disc_disp}")
-                    st.info(f"📝 메모: {row['Memo']}")
-        else:
-            st.success("손실 기록이 없습니다!")
+                    c1.markdown(f"**😡 원인:** {tags_disp}"); c1.markdown(f"**🧠 감정:** {emo_disp}")
+                    c2.markdown(f"**⚖️ 원칙:** {disc_disp}"); st.info(f"📝 메모: {row['Memo']}")
+        else: st.success("손실 기록이 없습니다!")
 
-    # === [NEW] TAB 6: 수익쿠션 계산기 (자동계산 기능 추가) ===
+    # === [NEW] TAB 6: 수익쿠션 계산기 ===
     with tab6:
-        st.subheader("🧮 수익 쿠션(Profit Cushion) 계산기")
-        st.info("💡 **수익 쿠션:** 시장이 하락해도 내 원금을 지켜주는 '이미 번 돈(Open Profit)'입니다. 쿠션이 빵빵해야 공격적인 베팅이 가능합니다.")
+        st.subheader("🧮 수익 쿠션 계산기 (Position Sizing)")
+        st.info("💡 **수익 쿠션:** 현재 확보한 수익금을 담보로 리스크를 감당하는 전략입니다.")
         
         c1, c2 = st.columns(2)
-        
         with c1:
-            st.write("💰 **현재 자산 상황**")
+            st.markdown("### 1️⃣ 내 자산 입력")
             total_account = st.number_input("총 추정자산 (예수금+주식)", value=10000000, step=100000)
             open_profit = st.number_input("현재 총 수익금 (평가손익)", value=0, step=10000)
             
         with c2:
-            st.write("🛡️ **리스크 시뮬레이션**")
-            current_buy_amt = st.number_input("현재 총 매수금액 (보유주식 평가금)", value=5000000, step=100000)
-            loss_cut_pct = st.number_input("예상 평균 손절률 (%)", value=5.0, step=0.5)
-            
-            # [자동 계산] 리스크 금액
+            st.markdown("### 2️⃣ 리스크 시뮬레이션")
+            current_buy_amt = st.number_input("현재 보유주식 총 매수금액", value=5000000, step=100000)
+            loss_cut_pct = st.number_input("평균 손절 계획 (%)", value=5.0, step=0.5)
             open_risk = current_buy_amt * (loss_cut_pct / 100)
-            st.error(f"📉 모든 종목 손절 시 손실금: **-{open_risk:,.0f}원**")
+            st.error(f"📉 모든 종목 손절 시 예상 손실금: **-{open_risk:,.0f}원**")
+
+        # 상태 판독
+        if total_account > 0:
+            cushion_percent = (open_profit / total_account) * 100
+            st.metric("현재 수익 쿠션", f"{cushion_percent:.2f}%")
+            if open_profit > open_risk:
+                st.success(f"💎 **House Money 상태!** (안전함)\n\n수익금({open_profit:,.0f}원) > 손실예상금({open_risk:,.0f}원). 원금 손실 위험 0입니다.")
+            elif open_profit > 0:
+                st.warning(f"⚠️ **주의 필요** (쿠션 부족)\n\n다 손절하면 원금이 **{open_risk - open_profit:,.0f}원** 손실됩니다.")
+            else:
+                st.error("🚨 **비상! 원금 노출 상태**")
 
         st.divider()
         
-        # 결과 판독
-        if total_account > 0:
-            cushion_percent = (open_profit / total_account) * 100
-            st.metric("현재 수익 쿠션 (%)", f"{cushion_percent:.2f}%")
+        # [추가된 기능] 투자 가능 금액 계산기
+        st.subheader("🎯 수익 쿠션 기반 베팅 금액 계산기")
+        st.caption("현재 수익금(쿠션)을 전부 리스크로 걸었을 때, 손절폭에 따라 얼마까지 매수할 수 있는지 계산합니다.")
+        
+        if open_profit > 0:
+            target_sl_pct = st.slider("신규 진입 종목의 손절폭 (%)", 1.0, 30.0, 5.0, 0.5)
+            # 공식: 투자가능금액 = 수익금 / (손절율/100)
+            investable = open_profit / (target_sl_pct / 100)
             
-            # 쿠션 vs 리스크 비교
-            if open_profit > open_risk:
-                st.success(f"💎 **House Money 상태! (아주 안전)**\n\n수익금({open_profit:,.0f}원)이 리스크({open_risk:,.0f}원)보다 큽니다. \n지금은 원금 손실 걱정 없이 추세를 즐길 때입니다!")
-            elif open_profit > 0:
-                st.warning(f"⚠️ **주의 필요 (쿠션 부족)**\n\n수익이 있지만 리스크를 다 막지 못합니다. \n다 손절하면 원금이 **{open_risk - open_profit:,.0f}원** 까입니다.")
-            else:
-                st.error(f"🚨 **비상! 원금 노출 상태**\n\n쿠션이 전혀 없습니다. \n지금 손절하면 깡통 찹니다. 신규 진입을 멈추고 방어하세요.")
+            st.markdown(f"""
+            #### 💰 최대 매수 가능 금액: **:blue[{investable:,.0f}원]**
+            * 손절을 **-{target_sl_pct}%**로 잡았을 때, **{investable:,.0f}원**어치를 사면
+            * 손절 시 정확히 수익금 **{open_profit:,.0f}원**만 잃고 원금은 지켜집니다.
+            """)
+        else:
+            st.warning("⚠️ 현재 수익 쿠션이 없어서(0원 이하) 계산할 수 없습니다.")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
