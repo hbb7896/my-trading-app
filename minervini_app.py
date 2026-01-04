@@ -115,7 +115,7 @@ else:
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 차트 대시보드", "📅 월별 분석", "📆 연도별 분석", "📋 데이터 원본", "❌ 습관 분석", "🧮 수익쿠션"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 차트", "📅 월별", "📆 연도별", "📋 원본", "❌ 습관분석", "🧮 수익쿠션"])
     
     df['Year'] = df['Date'].dt.year
     df['YearMonth'] = df['Date'].dt.strftime('%Y-%m')
@@ -168,9 +168,11 @@ if not df.empty:
             gross_profit = group[group['P_L_Amount'] > 0]['P_L_Amount'].sum()
             gross_loss = abs(group[group['P_L_Amount'] <= 0]['P_L_Amount'].sum())
             pf = gross_profit / gross_loss if gross_loss > 0 else 0
+            
             m_avg_gain = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
             m_avg_loss = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
             m_wl_ratio = m_avg_gain / m_avg_loss if m_avg_loss > 0 else 0
+            
             monthly_stats.append({
                 "기간": str(ym), 
                 "총 손익": float(group['P_L_Amount'].sum()), 
@@ -190,9 +192,11 @@ if not df.empty:
             gross_profit = group[group['P_L_Amount'] > 0]['P_L_Amount'].sum()
             gross_loss = abs(group[group['P_L_Amount'] <= 0]['P_L_Amount'].sum())
             pf = gross_profit / gross_loss if gross_loss > 0 else 0
+            
             y_avg_gain = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
             y_avg_loss = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
             y_wl_ratio = y_avg_gain / y_avg_loss if y_avg_loss > 0 else 0
+            
             yearly_stats.append({
                 "연도": int(y), 
                 "총 손익": float(group['P_L_Amount'].sum()), 
@@ -245,10 +249,10 @@ if not df.empty:
                     c2.markdown(f"**⚖️ 원칙:** {disc_disp}"); st.info(f"📝 메모: {row['Memo']}")
         else: st.success("손실 기록이 없습니다!")
 
-    # === [NEW] TAB 6: 수익쿠션 계산기 ===
+    # === [NEW] TAB 6: 수익쿠션 계산기 (안전장치 추가) ===
     with tab6:
         st.subheader("🧮 수익 쿠션 계산기 (Position Sizing)")
-        st.info("💡 **수익 쿠션:** 현재 확보한 수익금을 담보로 리스크를 감당하는 전략입니다.")
+        st.info("💡 **수익 쿠션:** 시장이 하락하면 수익금도 줄어듭니다. 이를 대비해 '안전율(보수적 계산)'을 적용하여 베팅 금액을 산출하세요.")
         
         c1, c2 = st.columns(2)
         with c1:
@@ -261,37 +265,32 @@ if not df.empty:
             current_buy_amt = st.number_input("현재 보유주식 총 매수금액", value=5000000, step=100000)
             loss_cut_pct = st.number_input("평균 손절 계획 (%)", value=5.0, step=0.5)
             open_risk = current_buy_amt * (loss_cut_pct / 100)
-            st.error(f"📉 모든 종목 손절 시 예상 손실금: **-{open_risk:,.0f}원**")
-
-        # 상태 판독
-        if total_account > 0:
-            cushion_percent = (open_profit / total_account) * 100
-            st.metric("현재 수익 쿠션", f"{cushion_percent:.2f}%")
-            if open_profit > open_risk:
-                st.success(f"💎 **House Money 상태!** (안전함)\n\n수익금({open_profit:,.0f}원) > 손실예상금({open_risk:,.0f}원). 원금 손실 위험 0입니다.")
-            elif open_profit > 0:
-                st.warning(f"⚠️ **주의 필요** (쿠션 부족)\n\n다 손절하면 원금이 **{open_risk - open_profit:,.0f}원** 손실됩니다.")
-            else:
-                st.error("🚨 **비상! 원금 노출 상태**")
+            st.error(f"📉 예상 손실금: **-{open_risk:,.0f}원**")
 
         st.divider()
         
-        # [추가된 기능] 투자 가능 금액 계산기
-        st.subheader("🎯 수익 쿠션 기반 베팅 금액 계산기")
-        st.caption("현재 수익금(쿠션)을 전부 리스크로 걸었을 때, 손절폭에 따라 얼마까지 매수할 수 있는지 계산합니다.")
+        # [NEW] 안전율 슬라이더
+        st.subheader("🛡️ 안전한 베팅 금액 계산 (역산)")
+        safety_margin = st.slider("현재 수익금의 몇 %만 쿠션으로 사용할까요? (안전율)", 10, 100, 50, 10)
         
         if open_profit > 0:
-            target_sl_pct = st.slider("신규 진입 종목의 손절폭 (%)", 1.0, 30.0, 5.0, 0.5)
-            # 공식: 투자가능금액 = 수익금 / (손절율/100)
-            investable = open_profit / (target_sl_pct / 100)
+            # 안전하게 사용할 수 있는 쿠션 금액 (예: 수익의 50%만 인정)
+            safe_cushion = open_profit * (safety_margin / 100)
             
-            st.markdown(f"""
-            #### 💰 최대 매수 가능 금액: **:blue[{investable:,.0f}원]**
-            * 손절을 **-{target_sl_pct}%**로 잡았을 때, **{investable:,.0f}원**어치를 사면
-            * 손절 시 정확히 수익금 **{open_profit:,.0f}원**만 잃고 원금은 지켜집니다.
+            # 신규 진입 시 손절폭
+            target_sl_pct = st.slider("신규 진입 종목의 손절폭 (%)", 1.0, 30.0, 5.0, 0.5)
+            
+            # 투자가능금액 = (보수적 쿠션) / 손절률
+            investable = safe_cushion / (target_sl_pct / 100)
+            
+            st.success(f"""
+            #### 💰 추천 매수 금액: **:blue[{investable:,.0f}원]**
+            
+            * 현재 수익금 **{open_profit:,.0f}원** 중 **{safety_margin}%({safe_cushion:,.0f}원)**만 담보로 잡았습니다.
+            * 만약 이 종목에서 **-{target_sl_pct}%** 손절을 쳐도, 내 수익금의 일부만 줄어들 뿐 **원금은 100% 안전**합니다.
             """)
         else:
-            st.warning("⚠️ 현재 수익 쿠션이 없어서(0원 이하) 계산할 수 없습니다.")
+            st.warning("⚠️ 현재 수익금(쿠션)이 없어서 계산할 수 없습니다. (원금 방어에 집중하세요!)")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
