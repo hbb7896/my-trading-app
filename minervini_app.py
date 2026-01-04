@@ -13,19 +13,17 @@ st.set_page_config(page_title="Trading Master Dashboard", page_icon="💎", layo
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- [NEW] 설정값 불러오기 (Sheet2 사용) ---
+# --- 설정값 불러오기 (에러 방지용 예외처리 강화) ---
 @st.cache_data(ttl=0)
 def load_settings():
     try:
-        # 두 번째 시트(worksheet=1)에서 설정값을 읽어옴
         df = conn.read(worksheet=1, ttl=0)
         if not df.empty:
-            return df.iloc[0].to_dict() # 첫 번째 줄을 딕셔너리로 변환
+            return df.iloc[0].to_dict()
     except:
-        pass # 시트가 없거나 에러나면 그냥 기본값 사용
+        pass
     return {}
 
-# 설정값 로드 (없으면 빈 딕셔너리)
 saved_config = load_settings()
 
 # --- 한국 종목 리스트 ---
@@ -264,34 +262,34 @@ if not df.empty:
                     c2.markdown(f"**⚖️ 원칙:** {disc_disp}"); st.info(f"📝 메모: {row['Memo']}")
         else: st.success("손실 기록이 없습니다!")
 
-    # === [NEW] TAB 6: 수익쿠션 계산기 (저장 기능 추가) ===
+    # === [수정된] TAB 6: 수익쿠션 계산기 (Mixed Type Error 해결) ===
     with tab6:
         st.subheader("🧮 수익 쿠션 계산기 (Position Sizing)")
         st.info("💡 **팁:** 값을 입력하고 아래 **[💾 설정 저장하기]** 버튼을 누르면, 앱을 껐다 켜도 값이 유지됩니다!")
         
-        # 저장된 값 불러오기 (없으면 기본값)
-        default_account = float(saved_config.get('total_account', 10000000))
-        default_profit = float(saved_config.get('open_profit', 0))
-        default_buy = float(saved_config.get('current_buy_amt', 5000000))
+        # 저장된 값 불러오기 (float로 통일하여 Type Error 방지)
+        default_account = float(saved_config.get('total_account', 10000000.0))
+        default_profit = float(saved_config.get('open_profit', 0.0))
+        default_buy = float(saved_config.get('current_buy_amt', 5000000.0))
         default_loss_pct = float(saved_config.get('loss_cut_pct', 5.0))
         
         with st.form("cushion_form"):
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("### 1️⃣ 내 자산 입력")
-                total_account = st.number_input("총 추정자산 (예수금+주식)", value=default_account, step=100000)
-                open_profit = st.number_input("현재 총 수익금 (평가손익)", value=default_profit, step=10000)
+                # [수정] step 값을 float(100000.0)으로 설정하여 value(float)와 타입 일치시킴
+                total_account = st.number_input("총 추정자산 (예수금+주식)", value=default_account, step=100000.0)
+                open_profit = st.number_input("현재 총 수익금 (평가손익)", value=default_profit, step=10000.0)
                 
             with c2:
                 st.markdown("### 2️⃣ 리스크 시뮬레이션")
-                current_buy_amt = st.number_input("현재 보유주식 총 매수금액", value=default_buy, step=100000)
+                current_buy_amt = st.number_input("현재 보유주식 총 매수금액", value=default_buy, step=100000.0)
                 loss_cut_pct = st.number_input("평균 손절 계획 (%)", value=default_loss_pct, step=0.5)
             
             # 저장 버튼
             save_btn = st.form_submit_button("💾 설정 저장하기")
             
             if save_btn:
-                # 구글 시트 2번째 탭(worksheet=1)에 저장
                 new_config = pd.DataFrame([{
                     'total_account': total_account,
                     'open_profit': open_profit,
@@ -317,7 +315,11 @@ if not df.empty:
             investable = safe_cushion / (target_sl_pct / 100)
             
             # 상태 판독
-            cushion_percent = (open_profit / total_account) * 100
+            if total_account > 0:
+                cushion_percent = (open_profit / total_account) * 100
+            else:
+                cushion_percent = 0
+
             st.markdown(f"""
             #### 📊 분석 결과
             * 현재 수익 쿠션: **{cushion_percent:.2f}%**
