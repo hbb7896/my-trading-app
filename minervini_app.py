@@ -61,16 +61,14 @@ def load_data():
         
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         
-        # [NEW] 과거 데이터에 매수/매도 금액이 없으면 역산해서 채우기 (자동 복구)
+        # 데이터 복구 및 초기화
         if 'Buy_Amount' not in df.columns: df['Buy_Amount'] = 0.0
         if 'Sell_Amount' not in df.columns: df['Sell_Amount'] = 0.0
         
-        # Buy Amount가 0인데 ROI와 P/L이 있는 경우 역산 (매수금 = 손익 / (수익률/100))
         mask = (df['Buy_Amount'] == 0) & (df['ROI_Percent'] != 0)
         df.loc[mask, 'Buy_Amount'] = (df.loc[mask, 'P_L_Amount'] / (df.loc[mask, 'ROI_Percent'] / 100)).abs()
         df.loc[mask, 'Sell_Amount'] = df.loc[mask, 'Buy_Amount'] + df.loc[mask, 'P_L_Amount']
 
-        # 습관 분석용 컬럼 처리
         if 'Mistake_Tags' not in df.columns: df['Mistake_Tags'] = None
         if 'Emotion' not in df.columns: df['Emotion'] = None
         if 'Discipline' not in df.columns: df['Discipline'] = None
@@ -87,16 +85,12 @@ st.sidebar.header("📝 매매 기록 입력")
 with st.sidebar.form("quick_input", clear_on_submit=True):
     date = st.date_input("일자", datetime.today())
     ticker = st.text_input("종목명 (예: 삼성전자)").strip()
-    
-    # [NEW] 매수 금액 입력 추가
     buy_amt = st.number_input("총 매수 금액 (원)", value=0, step=100000)
     pn_l = st.number_input("실현 손익금 (원)", value=0, step=10000)
     roi = st.number_input("수익률 (%)", value=0.0, format="%.2f")
     
-    # 매도 금액 자동 계산 안내
     if buy_amt != 0:
-        calc_sell = buy_amt + pn_l
-        st.caption(f"💡 예상 매도 금액: {calc_sell:,.0f}원")
+        st.caption(f"💡 예상 매도 금액: {buy_amt + pn_l:,.0f}원")
     
     st.divider()
     st.caption("🧠 습관 분석")
@@ -107,36 +101,21 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
     discipline = st.radio("원칙을 지켰습니까?", ["Yes (잘한 매매)", "No (반성 필요)"], horizontal=True)
     memo = st.text_input("메모")
     
-    submit = st.form_submit_button("기록 저장")
-
-    if submit:
+    if st.form_submit_button("기록 저장"):
         if ticker:
-            # 매도금액 계산
             sell_amt = buy_amt + pn_l
-            
             new_data = pd.DataFrame([{
-                'Date': date.strftime('%Y-%m-%d'),
-                'Ticker': ticker,
-                'Buy_Amount': buy_amt,   # 저장
-                'Sell_Amount': sell_amt, # 저장
-                'P_L_Amount': pn_l,
-                'ROI_Percent': roi,
-                'Mistake_Tags': tags_str,
-                'Emotion': emotion,
-                'Discipline': discipline,
-                'Memo': memo
+                'Date': date.strftime('%Y-%m-%d'), 'Ticker': ticker, 'Buy_Amount': buy_amt, 'Sell_Amount': sell_amt,
+                'P_L_Amount': pn_l, 'ROI_Percent': roi, 'Mistake_Tags': tags_str, 'Emotion': emotion, 'Discipline': discipline, 'Memo': memo
             }])
-            
             if df.empty: updated_df = new_data
             else:
                 df_temp = load_data()
                 df_temp['Date'] = df_temp['Date'].dt.strftime('%Y-%m-%d')
                 updated_df = pd.concat([df_temp, new_data], ignore_index=True)
-
             conn.update(worksheet=0, data=updated_df)
             st.success(f"✅ {ticker} 저장 완료!"); st.rerun()
-        else:
-            st.error("종목명을 입력해주세요.")
+        else: st.error("종목명을 입력해주세요.")
 
 if krx_list.empty: st.sidebar.caption("⚠️ 리스트 로딩 실패")
 else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
@@ -182,8 +161,7 @@ if not df.empty:
             my_chart = base.mark_line(color='#00AA00', strokeWidth=3).encode(y=alt.Y('Cumulative:Q', title='내 수익'), tooltip=['Date', 'Cumulative'])
             kospi_chart = alt.Chart(kospi).mark_line(color='#FF4444', strokeDash=[5,5]).encode(x='Date:T', y=alt.Y('KOSPI:Q', title='KOSPI', scale=alt.Scale(zero=False)))
             st.altair_chart(alt.layer(my_chart, kospi_chart).resolve_scale(y='independent'), use_container_width=True)
-        except:
-            st.line_chart(daily_df.set_index('Date')['Cumulative'])
+        except: st.line_chart(daily_df.set_index('Date')['Cumulative'])
         
         st.subheader("📊 월별 손익 흐름")
         st.bar_chart(df.groupby('YearMonth')['P_L_Amount'].sum())
@@ -197,12 +175,9 @@ if not df.empty:
             gross_profit = group[group['P_L_Amount'] > 0]['P_L_Amount'].sum()
             gross_loss = abs(group[group['P_L_Amount'] <= 0]['P_L_Amount'].sum())
             pf = gross_profit / gross_loss if gross_loss > 0 else 0
-            
             m_avg_gain = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
             m_avg_loss = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
             m_wl_ratio = m_avg_gain / m_avg_loss if m_avg_loss > 0 else 0
-            
-            # [NEW] 월별 총 매수/매도 규모 (Turnover)
             m_buy_vol = group['Buy_Amount'].sum()
             
             monthly_stats.append({
@@ -236,57 +211,76 @@ if not df.empty:
     # === TAB 4: 원본 ===
     with tab4: st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
 
-    # === [NEW] TAB 5: 배팅 효율 및 습관 분석 ===
+    # === [수정된] TAB 5: 배팅/습관 분석 (기간 필터 추가) ===
     with tab5:
-        st.subheader("🎯 점진적 배팅 효율성 분석")
-        st.caption("확신이 있는(수익이 큰) 종목에 돈을 많이 태우고 있나요? 우상향 대각선에 점이 찍혀야 이상적입니다.")
+        st.subheader("🎯 배팅 효율 및 습관 분석")
         
-        # 배팅 금액 vs 수익금 산점도
-        scatter_chart = alt.Chart(df).mark_circle(size=60).encode(
-            x=alt.X('Buy_Amount', title='매수 금액 (배팅 규모)'),
-            y=alt.Y('P_L_Amount', title='실현 손익금'),
-            color=alt.condition(alt.datum.P_L_Amount > 0, alt.value("green"), alt.value("red")),
-            tooltip=['Ticker', 'Date', 'Buy_Amount', 'ROI_Percent', 'P_L_Amount']
-        ).interactive()
-        st.altair_chart(scatter_chart, use_container_width=True)
-
-        st.divider()
-        st.subheader("🧠 오답노트 통계")
+        # [NEW] 기간 선택 필터
+        period_option = st.radio("📅 분석 기간 선택", ["전체", "최근 1개월", "최근 3개월", "최근 6개월", "최근 12개월"], horizontal=True)
         
-        valid_tags = df['Mistake_Tags'].dropna(); valid_tags = valid_tags[valid_tags != ""]
-        valid_disc = df['Discipline'].dropna(); valid_disc = valid_disc[valid_disc != ""]
+        # 데이터 필터링 로직
+        filtered_df = df.copy()
+        today = datetime.today()
+        if period_option == "최근 1개월":
+            filtered_df = df[df['Date'] >= (today - timedelta(days=30))]
+        elif period_option == "최근 3개월":
+            filtered_df = df[df['Date'] >= (today - timedelta(days=90))]
+        elif period_option == "최근 6개월":
+            filtered_df = df[df['Date'] >= (today - timedelta(days=180))]
+        elif period_option == "최근 12개월":
+            filtered_df = df[df['Date'] >= (today - timedelta(days=365))]
+            
+        if not filtered_df.empty:
+            st.caption(f"🔍 **{period_option}** 데이터 ({len(filtered_df)}건)을 분석합니다.")
+            
+            # 1. 배팅 효율 차트 (필터된 데이터 사용)
+            scatter_chart = alt.Chart(filtered_df).mark_circle(size=60).encode(
+                x=alt.X('Buy_Amount', title='매수 금액 (배팅 규모)'),
+                y=alt.Y('P_L_Amount', title='실현 손익금'),
+                color=alt.condition(alt.datum.P_L_Amount > 0, alt.value("green"), alt.value("red")),
+                tooltip=['Ticker', 'Date', 'Buy_Amount', 'ROI_Percent', 'P_L_Amount']
+            ).interactive()
+            st.altair_chart(scatter_chart, use_container_width=True)
 
-        c1, c2 = st.columns(2)
-        with c1:
-            st.write("🛑 **손실 원인 TOP 5 (신규)**")
-            if not valid_tags.empty:
-                tag_counts = valid_tags.astype(str).str.split(', ').explode().value_counts().reset_index()
-                tag_counts.columns = ['원인', '횟수']
-                base = alt.Chart(tag_counts).encode(x=alt.X('횟수:Q'), y=alt.Y('원인:N', sort='-x'), color=alt.condition(alt.datum.원인 == '정상매매', alt.value('green'), alt.value('red')))
-                st.altair_chart(base.mark_bar(), use_container_width=True)
-            else: st.info("데이터가 쌓이면 그래프가 표시됩니다.")
+            st.divider()
+            st.subheader("🧠 오답노트 통계 (선택 기간)")
+            
+            valid_tags = filtered_df['Mistake_Tags'].dropna(); valid_tags = valid_tags[valid_tags != ""]
+            valid_disc = filtered_df['Discipline'].dropna(); valid_disc = valid_disc[valid_disc != ""]
 
-        with c2:
-            st.write("⚖️ **원칙 준수율 (신규)**")
-            if not valid_disc.empty:
-                d_counts = valid_disc.value_counts().reset_index()
-                d_counts.columns = ['상태', '횟수']
-                pie = alt.Chart(d_counts).mark_arc(innerRadius=50).encode(theta=alt.Theta(field="횟수", type="quantitative"), color=alt.Color(field="상태", type="nominal", scale=alt.Scale(range=['#ff4b4b', '#36bd62'])))
-                st.altair_chart(pie, use_container_width=True)
-            else: st.info("데이터가 쌓이면 그래프가 표시됩니다.")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("🛑 **손실 원인 TOP 5**")
+                if not valid_tags.empty:
+                    tag_counts = valid_tags.astype(str).str.split(', ').explode().value_counts().reset_index()
+                    tag_counts.columns = ['원인', '횟수']
+                    base = alt.Chart(tag_counts).encode(x=alt.X('횟수:Q'), y=alt.Y('원인:N', sort='-x'), color=alt.condition(alt.datum.원인 == '정상매매', alt.value('green'), alt.value('red')))
+                    st.altair_chart(base.mark_bar(), use_container_width=True)
+                else: st.info("해당 기간 분석 데이터가 없습니다.")
 
-        st.divider(); st.write("📉 **손실 거래 복기**")
-        bad = df[df['ROI_Percent'] < 0].sort_values('Date', ascending=False)
-        if not bad.empty:
-            for i, row in bad.iterrows():
-                tags_disp = row.get('Mistake_Tags') if row.get('Mistake_Tags') else "-"
-                emo_disp = row.get('Emotion') if row.get('Emotion') else "-"
-                disc_disp = row.get('Discipline') if row.get('Discipline') else "-"
-                with st.expander(f"{row['Date'].strftime('%Y-%m-%d')} | {row['Ticker']} | {row['P_L_Amount']:,.0f}원 ({row['ROI_Percent']}%)"):
-                    c1, c2 = st.columns(2)
-                    c1.markdown(f"**😡 원인:** {tags_disp}"); c1.markdown(f"**🧠 감정:** {emo_disp}")
-                    c2.markdown(f"**⚖️ 원칙:** {disc_disp}"); st.info(f"📝 메모: {row['Memo']}")
-        else: st.success("손실 기록이 없습니다!")
+            with c2:
+                st.write("⚖️ **원칙 준수율**")
+                if not valid_disc.empty:
+                    d_counts = valid_disc.value_counts().reset_index()
+                    d_counts.columns = ['상태', '횟수']
+                    pie = alt.Chart(d_counts).mark_arc(innerRadius=50).encode(theta=alt.Theta(field="횟수", type="quantitative"), color=alt.Color(field="상태", type="nominal", scale=alt.Scale(range=['#ff4b4b', '#36bd62'])))
+                    st.altair_chart(pie, use_container_width=True)
+                else: st.info("해당 기간 분석 데이터가 없습니다.")
+
+            st.divider(); st.write("📉 **손실 거래 복기 List**")
+            bad = filtered_df[filtered_df['ROI_Percent'] < 0].sort_values('Date', ascending=False)
+            if not bad.empty:
+                for i, row in bad.iterrows():
+                    tags_disp = row.get('Mistake_Tags') if row.get('Mistake_Tags') else "-"
+                    emo_disp = row.get('Emotion') if row.get('Emotion') else "-"
+                    disc_disp = row.get('Discipline') if row.get('Discipline') else "-"
+                    with st.expander(f"{row['Date'].strftime('%Y-%m-%d')} | {row['Ticker']} | {row['P_L_Amount']:,.0f}원 ({row['ROI_Percent']}%)"):
+                        c1, c2 = st.columns(2)
+                        c1.markdown(f"**😡 원인:** {tags_disp}"); c1.markdown(f"**🧠 감정:** {emo_disp}")
+                        c2.markdown(f"**⚖️ 원칙:** {disc_disp}"); st.info(f"📝 메모: {row['Memo']}")
+            else: st.success("해당 기간 손실 기록이 없습니다! 훌륭합니다.")
+        else:
+            st.warning(f"⚠️ 선택하신 '{period_option}' 기간에는 매매 기록이 없습니다.")
 
     # === TAB 6: 수익쿠션 계산기 ===
     with tab6:
@@ -325,7 +319,6 @@ if not df.empty:
             target_sl_pct = st.slider("신규 진입 종목의 손절폭 (%)", 1.0, 30.0, 5.0, 0.5)
             investable = safe_cushion / (target_sl_pct / 100)
             cushion_percent = (open_profit / total_account) * 100 if total_account > 0 else 0
-            
             st.markdown(f"""
             #### 📊 현재 수익 쿠션: **{cushion_percent:.2f}%**
             #### 💰 추천 매수 금액: **:blue[{investable:,.0f}원]** (손절 {target_sl_pct}% 기준)
