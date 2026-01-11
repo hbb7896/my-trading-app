@@ -44,7 +44,7 @@ def show_pf_guide():
         | **3.0 이상** | 💎 전설 | 초고수 (Legendary) |
         """)
 
-# [수정] 오류 방지를 위해 컬럼 목록을 별도 변수로 정의
+# [오류 방지] 컬럼 목록 정의 (기존 데이터 호환용)
 REQUIRED_COLUMNS = [
     'Date', 'Ticker', 'Buy_Amount', 'Sell_Amount', 'P_L_Amount', 
     'ROI_Percent', 'Mistake_Tags', 'Emotion', 'Discipline', 'Memo'
@@ -54,7 +54,6 @@ def load_data():
     try:
         df = conn.read(worksheet=0, ttl=0)
         
-        # 데이터가 없으면 빈 프레임 반환
         if df.empty:
              return pd.DataFrame(columns=REQUIRED_COLUMNS)
         
@@ -73,14 +72,13 @@ def load_data():
         if 'Buy_Amount' not in df.columns: df['Buy_Amount'] = 0.0
         if 'Sell_Amount' not in df.columns: df['Sell_Amount'] = 0.0
         
-        # 매수금액 역산 로직
         mask = (df['Buy_Amount'] == 0) & (df['ROI_Percent'] != 0)
         df.loc[mask, 'Buy_Amount'] = (df.loc[mask, 'P_L_Amount'] / (df.loc[mask, 'ROI_Percent'] / 100)).abs()
         df.loc[mask, 'Sell_Amount'] = df.loc[mask, 'Buy_Amount'] + df.loc[mask, 'P_L_Amount']
 
-        if 'Mistake_Tags' not in df.columns: df['Mistake_Tags'] = None
-        if 'Emotion' not in df.columns: df['Emotion'] = None
-        if 'Discipline' not in df.columns: df['Discipline'] = None
+        # 습관 컬럼 채우기 (오류 방지용)
+        for col in ['Mistake_Tags', 'Emotion', 'Discipline', 'Memo']:
+            if col not in df.columns: df[col] = None
         
         return df
     except:
@@ -89,7 +87,7 @@ def load_data():
 df = load_data()
 krx_list = get_krx_list() 
 
-# --- 사이드바 입력 ---
+# --- [수정됨] 사이드바 입력 (습관 분석 제거) ---
 st.sidebar.header("📝 매매 기록 입력")
 with st.sidebar.form("quick_input", clear_on_submit=True):
     date = st.date_input("일자", datetime.today())
@@ -102,21 +100,26 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
         st.caption(f"💡 예상 매도 금액: {buy_amt + pn_l:,.0f}원")
     
     st.divider()
-    st.caption("🧠 습관 분석")
-    mistake_options = ["정상매매", "뇌동매매", "추격매수", "손절늦음", "익절너무빠름", "시장하락", "비중위반"]
-    tags = st.multiselect("매매 특이사항", mistake_options, default=["정상매매"])
-    tags_str = ", ".join(tags)
-    emotion = st.selectbox("매수 당시 감정", ["평온함", "흥분/조급함(FOMO)", "공포", "복수심(화남)", "지루함"])
-    discipline = st.radio("원칙을 지켰습니까?", ["Yes (잘한 매매)", "No (반성 필요)"], horizontal=True)
-    memo = st.text_input("메모")
+    # 습관 분석 입력란 삭제됨
+    memo = st.text_input("메모 (특이사항 등)")
     
     if st.form_submit_button("기록 저장"):
         if ticker:
             sell_amt = buy_amt + pn_l
+            # 습관 관련 필드는 빈 값으로 처리하여 저장
             new_data = pd.DataFrame([{
-                'Date': date.strftime('%Y-%m-%d'), 'Ticker': ticker, 'Buy_Amount': buy_amt, 'Sell_Amount': sell_amt,
-                'P_L_Amount': pn_l, 'ROI_Percent': roi, 'Mistake_Tags': tags_str, 'Emotion': emotion, 'Discipline': discipline, 'Memo': memo
+                'Date': date.strftime('%Y-%m-%d'), 
+                'Ticker': ticker, 
+                'Buy_Amount': buy_amt, 
+                'Sell_Amount': sell_amt,
+                'P_L_Amount': pn_l, 
+                'ROI_Percent': roi, 
+                'Mistake_Tags': None,
+                'Emotion': None,
+                'Discipline': None,
+                'Memo': memo
             }])
+            
             if df.empty: updated_df = new_data
             else:
                 df_temp = load_data()
@@ -133,6 +136,7 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
+    # 탭 순서 변경 및 습관 탭 제거
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 차트", "📅 월별", "📆 연도별", "📋 원본", "⚖️ 빅터 스페란데오", "🧮 수익쿠션"])
     
     df['Year'] = df['Date'].dt.year
@@ -220,7 +224,7 @@ if not df.empty:
     # === TAB 4: 원본 ===
     with tab4: st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
 
-    # === [NEW] TAB 5: 빅터 스페란데오 분석 ===
+    # === [수정 완료] TAB 5: 빅터 스페란데오 분석 (오류 해결) ===
     with tab5:
         st.subheader("⚖️ Victor Sperandeo's Reward-to-Risk Analysis")
         st.markdown("> **\"최소 3:1의 보상 비율이 나오지 않는 거래는 시작조차 하지 마라.\"** - Victor Sperandeo")
@@ -231,79 +235,59 @@ if not df.empty:
         # 기댓값 = (승률 * 평균수익) - (패율 * 평균손실)
         expectancy = (win_prob * avg_win) - (loss_prob * avg_loss)
         
-        # 2. 메트릭 표시
         col1, col2, col3 = st.columns(3)
-        
         with col1:
-            st.metric(
-                "현재 계좌 손익비 (R/R)", 
-                f"{risk_reward_ratio:.2f} : 1",
-                delta="목표 달성 (3:1 이상)" if risk_reward_ratio >= 3.0 else f"목표 미달 (-{3.0 - risk_reward_ratio:.2f})",
-                delta_color="normal" if risk_reward_ratio >= 3.0 else "inverse"
-            )
-            
+            st.metric("현재 계좌 손익비 (R/R)", f"{risk_reward_ratio:.2f} : 1",
+                delta="목표 달성" if risk_reward_ratio >= 3.0 else f"목표 미달",
+                delta_color="normal" if risk_reward_ratio >= 3.0 else "inverse")
         with col2:
-            st.metric(
-                "거래당 기댓값 (Edge)", 
-                f"{expectancy:.2f}%",
-                help="한 번 거래할 때마다 통계적으로 기대할 수 있는 수익률입니다. 양수여야 계좌가 우상향합니다."
-            )
-            
+            st.metric("거래당 기댓값 (Edge)", f"{expectancy:.2f}%")
         with col3:
             st.metric("빅터의 목표 기준", "3.0 : 1")
             
         st.divider()
         
-        # 3. 빅터 스페란데오 차트 (3:1 가이드라인)
+        # 3. 빅터 스페란데오 차트 (오류 수정됨)
         st.subheader("🎯 3:1 원칙 준수 여부 시각화")
         
-        # 시각화를 위한 데이터 가공 (손실은 양수로 변환하여 비교)
         scatter_df = df.copy()
+        target_roi = avg_loss * 3 if avg_loss > 0 else 10 # avg_loss가 0일 경우 대비
         
-        # 차트 그리기
-        # 기준선: 내 평균 손실의 3배가 되는 지점
-        target_roi = avg_loss * 3
+        # [핵심 수정] 색상을 미리 계산해서 컬럼으로 만듦 (Altair 오류 방지)
+        conditions = [
+            (scatter_df['ROI_Percent'] >= target_roi),
+            (scatter_df['ROI_Percent'] > 0)
+        ]
+        # 조건에 따른 색상: 초록(3배이상), 노랑(수익), 빨강(손실)
+        colors = ["#00CC00", "#F1C40F"]
+        scatter_df['Color_Hex'] = np.select(conditions, colors, default="#FF4B4B")
         
-        st.caption(f"💡 아래 차트에서 **초록색 점**은 빅터 스페란데오의 기준(평균 손실 {avg_loss:.1f}%의 3배인 {target_roi:.1f}% 이상 수익)을 충족한 **'질 좋은 거래'**입니다.")
+        st.caption(f"💡 **초록색 점**은 빅터 스페란데오의 기준(평균 손실 {avg_loss:.1f}%의 3배인 {target_roi:.1f}% 이상 수익)을 충족한 거래입니다.")
 
         scatter_chart = alt.Chart(scatter_df).mark_circle(size=100).encode(
             x=alt.X('Date', title='거래 일자'),
             y=alt.Y('ROI_Percent', title='수익률 (%)'),
-            color=alt.condition(
-                alt.datum.ROI_Percent >= target_roi, 
-                alt.value("#00CC00"),  # 3배 이상 수익 (초록)
-                alt.condition(
-                    alt.datum.ROI_Percent > 0,
-                    alt.value("#F1C40F"), # 수익은 났지만 3배 미만 (노랑)
-                    alt.value("#FF4B4B")  # 손실 (빨강)
-                )
-            ),
+            color=alt.Color('Color_Hex', scale=None, legend=None), # 미리 계산된 색상 사용
             tooltip=['Ticker', 'Date', 'ROI_Percent', 'P_L_Amount']
         ).interactive()
 
-        # 3:1 기준선 (Target Line)
         rule_line = alt.Chart(pd.DataFrame({'y': [target_roi]})).mark_rule(color='blue', strokeDash=[3,3]).encode(y='y')
-        
         st.altair_chart(scatter_chart + rule_line, use_container_width=True)
 
-        # 4. 분석 코멘트
-        st.info("🔵 **파란 점선**은 현재 평균 손실 대비 3배 수익 구간을 의미합니다. 점들이 이 선 위에 많이 위치할수록 빅터 스페란데오가 말하는 '건전한 도박'을 하고 있는 것입니다.")
-
+        st.info("🔵 **파란 점선**은 현재 평균 손실 대비 3배 수익 구간을 의미합니다.")
         st.divider()
         
-        # 5. 진단 메시지
-        st.subheader("🩺 Trader Vic's Prescription")
         if expectancy > 0 and risk_reward_ratio >= 3.0:
-            st.success("💎 **[전설적인 상태]** 훌륭합니다! 높은 손익비와 양의 기댓값을 유지하고 있습니다. 지금의 원칙을 강력하게 고수하세요.")
+            st.success("💎 **[전설적인 상태]** 훌륭합니다! 원칙을 잘 지키고 계시네요.")
         elif expectancy > 0 and risk_reward_ratio < 3.0:
-            st.warning(f"🔔 **[개선 필요]** 계좌는 우상향 중(기댓값 +)이나, 손익비({risk_reward_ratio:.2f})가 3.0에 미치지 못합니다. 이익을 조금 더 길게 가져가는 연습이 필요합니다.")
+            st.warning(f"🔔 **[개선 필요]** 수익은 나고 있지만, 손익비({risk_reward_ratio:.2f})를 3.0까지 올리는 노력이 필요합니다.")
         else:
-            st.error("🚨 **[위험 경보]** 현재 통계적 우위(Edge)가 없습니다. 매매 횟수를 줄이고, 확실한 3:1 자리에만 진입하는 인내심이 필요합니다.")
+            st.error("🚨 **[위험 경보]** 현재 통계적 우위가 없습니다. 3:1 자리를 더 신중하게 기다리세요.")
 
     # === TAB 6: 수익쿠션 계산기 ===
     with tab6:
         st.subheader("🧮 수익 쿠션 계산기 (Position Sizing)")
-        st.info("💡 **팁:** 값을 입력하고 아래 **[💾 설정 저장하기]** 버튼을 누르면, 앱을 껐다 켜도 값이 유지됩니다!")
+        st.info("💡 값을 입력하고 **[💾 설정 저장하기]**를 누르면 저장됩니다.")
         
         default_account = float(saved_config.get('total_account', 10000000.0))
         default_profit = float(saved_config.get('open_profit', 0.0))
@@ -313,11 +297,9 @@ if not df.empty:
         with st.form("cushion_form"):
             c1, c2 = st.columns(2)
             with c1:
-                st.markdown("### 1️⃣ 내 자산 입력")
-                total_account = st.number_input("총 추정자산 (예수금+주식)", value=default_account, step=100000.0)
-                open_profit = st.number_input("현재 총 수익금 (평가손익)", value=default_profit, step=10000.0)
+                total_account = st.number_input("총 추정자산", value=default_account, step=100000.0)
+                open_profit = st.number_input("현재 총 수익금", value=default_profit, step=10000.0)
             with c2:
-                st.markdown("### 2️⃣ 리스크 시뮬레이션")
                 current_buy_amt = st.number_input("현재 보유주식 총 매수금액", value=default_buy, step=100000.0)
                 loss_cut_pct = st.number_input("평균 손절 계획 (%)", value=default_loss_pct, step=0.5)
             
@@ -327,23 +309,22 @@ if not df.empty:
                 st.toast("✅ 저장 완료!"); st.rerun()
 
         open_risk = current_buy_amt * (loss_cut_pct / 100)
-        st.divider(); st.error(f"📉 모든 종목 손절 시 예상 손실금: **-{open_risk:,.0f}원**")
+        st.divider()
         
-        st.subheader("🛡️ 안전한 베팅 금액 계산 (역산)")
-        safety_margin = st.slider("현재 수익금의 몇 %만 쿠션으로 사용할까요?", 10, 100, 50, 10)
+        safety_margin = st.slider("수익금의 몇 %를 쿠션으로 쓸까요?", 10, 100, 50, 10)
         
         if open_profit > 0:
             safe_cushion = open_profit * (safety_margin / 100)
-            target_sl_pct = st.slider("신규 진입 종목의 손절폭 (%)", 1.0, 30.0, 5.0, 0.5)
+            target_sl_pct = st.slider("신규 진입 손절폭 (%)", 1.0, 30.0, 5.0, 0.5)
             investable = safe_cushion / (target_sl_pct / 100)
             cushion_percent = (open_profit / total_account) * 100 if total_account > 0 else 0
-            st.markdown(f"""
-            #### 📊 현재 수익 쿠션: **{cushion_percent:.2f}%**
-            #### 💰 추천 매수 금액: **:blue[{investable:,.0f}원]** (손절 {target_sl_pct}% 기준)
-            """)
+            
+            st.markdown(f"#### 📊 현재 수익 쿠션: **{cushion_percent:.2f}%**")
+            st.markdown(f"#### 💰 추천 매수 금액: **:blue[{investable:,.0f}원]**")
+            
             if open_profit > open_risk: st.success("💎 **House Money 상태!** 안전합니다.")
             else: st.warning("⚠️ **주의:** 리스크가 수익금을 초과했습니다.")
-        else: st.warning("⚠️ 현재 수익 쿠션이 없어서 계산할 수 없습니다.")
+        else: st.warning("⚠️ 수익 쿠션이 없어서 계산할 수 없습니다.")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
