@@ -44,7 +44,7 @@ def show_pf_guide():
         | **3.0 이상** | 💎 전설 | 초고수 (Legendary) |
         """)
 
-# [오류 방지] 컬럼 목록 정의 (기존 데이터 호환용)
+# [오류 방지] 컬럼 목록 정의
 REQUIRED_COLUMNS = [
     'Date', 'Ticker', 'Buy_Amount', 'Sell_Amount', 'P_L_Amount', 
     'ROI_Percent', 'Mistake_Tags', 'Emotion', 'Discipline', 'Memo'
@@ -76,7 +76,6 @@ def load_data():
         df.loc[mask, 'Buy_Amount'] = (df.loc[mask, 'P_L_Amount'] / (df.loc[mask, 'ROI_Percent'] / 100)).abs()
         df.loc[mask, 'Sell_Amount'] = df.loc[mask, 'Buy_Amount'] + df.loc[mask, 'P_L_Amount']
 
-        # 습관 컬럼 채우기 (오류 방지용)
         for col in ['Mistake_Tags', 'Emotion', 'Discipline', 'Memo']:
             if col not in df.columns: df[col] = None
         
@@ -87,7 +86,7 @@ def load_data():
 df = load_data()
 krx_list = get_krx_list() 
 
-# --- [수정됨] 사이드바 입력 (습관 분석 제거) ---
+# --- 사이드바 입력 ---
 st.sidebar.header("📝 매매 기록 입력")
 with st.sidebar.form("quick_input", clear_on_submit=True):
     date = st.date_input("일자", datetime.today())
@@ -100,13 +99,11 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
         st.caption(f"💡 예상 매도 금액: {buy_amt + pn_l:,.0f}원")
     
     st.divider()
-    # 습관 분석 입력란 삭제됨
     memo = st.text_input("메모 (특이사항 등)")
     
     if st.form_submit_button("기록 저장"):
         if ticker:
             sell_amt = buy_amt + pn_l
-            # 습관 관련 필드는 빈 값으로 처리하여 저장
             new_data = pd.DataFrame([{
                 'Date': date.strftime('%Y-%m-%d'), 
                 'Ticker': ticker, 
@@ -136,11 +133,12 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 순서 변경 및 습관 탭 제거
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 차트", "📅 월별", "📆 연도별", "📋 원본", "⚖️ 빅터 스페란데오", "🧮 수익쿠션"])
     
     df['Year'] = df['Date'].dt.year
     df['YearMonth'] = df['Date'].dt.strftime('%Y-%m')
+    
+    # [전체 통계용] - 탭 1~3에서 사용
     total_trades = len(df)
     wins = df[df['ROI_Percent'] > 0]
     losses = df[df['ROI_Percent'] <= 0]
@@ -224,65 +222,88 @@ if not df.empty:
     # === TAB 4: 원본 ===
     with tab4: st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
 
-    # === [수정 완료] TAB 5: 빅터 스페란데오 분석 (오류 해결) ===
+    # === [수정됨] TAB 5: 빅터 스페란데오 분석 (기간 필터 추가) ===
     with tab5:
         st.subheader("⚖️ Victor Sperandeo's Reward-to-Risk Analysis")
         st.markdown("> **\"최소 3:1의 보상 비율이 나오지 않는 거래는 시작조차 하지 마라.\"** - Victor Sperandeo")
         
-        # 1. 계산 (승률, 기댓값, RR)
-        win_prob = win_rate / 100
-        loss_prob = 1 - win_prob
-        # 기댓값 = (승률 * 평균수익) - (패율 * 평균손실)
-        expectancy = (win_prob * avg_win) - (loss_prob * avg_loss)
+        # [NEW] 기간 선택 기능
+        vic_period = st.radio("📅 분석 기간 선택", ["전체", "최근 1개월", "최근 3개월", "최근 6개월", "최근 1년"], horizontal=True)
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("현재 계좌 손익비 (R/R)", f"{risk_reward_ratio:.2f} : 1",
-                delta="목표 달성" if risk_reward_ratio >= 3.0 else f"목표 미달",
-                delta_color="normal" if risk_reward_ratio >= 3.0 else "inverse")
-        with col2:
-            st.metric("거래당 기댓값 (Edge)", f"{expectancy:.2f}%")
-        with col3:
-            st.metric("빅터의 목표 기준", "3.0 : 1")
+        # 데이터 필터링
+        vic_df = df.copy()
+        today = datetime.today()
+        
+        if vic_period == "최근 1개월":
+            vic_df = vic_df[vic_df['Date'] >= (today - timedelta(days=30))]
+        elif vic_period == "최근 3개월":
+            vic_df = vic_df[vic_df['Date'] >= (today - timedelta(days=90))]
+        elif vic_period == "최근 6개월":
+            vic_df = vic_df[vic_df['Date'] >= (today - timedelta(days=180))]
+        elif vic_period == "최근 1년":
+            vic_df = vic_df[vic_df['Date'] >= (today - timedelta(days=365))]
             
-        st.divider()
-        
-        # 3. 빅터 스페란데오 차트 (오류 수정됨)
-        st.subheader("🎯 3:1 원칙 준수 여부 시각화")
-        
-        scatter_df = df.copy()
-        target_roi = avg_loss * 3 if avg_loss > 0 else 10 # avg_loss가 0일 경우 대비
-        
-        # [핵심 수정] 색상을 미리 계산해서 컬럼으로 만듦 (Altair 오류 방지)
-        conditions = [
-            (scatter_df['ROI_Percent'] >= target_roi),
-            (scatter_df['ROI_Percent'] > 0)
-        ]
-        # 조건에 따른 색상: 초록(3배이상), 노랑(수익), 빨강(손실)
-        colors = ["#00CC00", "#F1C40F"]
-        scatter_df['Color_Hex'] = np.select(conditions, colors, default="#FF4B4B")
-        
-        st.caption(f"💡 **초록색 점**은 빅터 스페란데오의 기준(평균 손실 {avg_loss:.1f}%의 3배인 {target_roi:.1f}% 이상 수익)을 충족한 거래입니다.")
+        if not vic_df.empty:
+            # 선택된 기간에 대한 통계 재계산
+            v_wins = vic_df[vic_df['ROI_Percent'] > 0]
+            v_losses = vic_df[vic_df['ROI_Percent'] <= 0]
+            
+            v_win_rate = (len(v_wins) / len(vic_df)) * 100
+            v_avg_win = v_wins['ROI_Percent'].mean() if not v_wins.empty else 0
+            v_avg_loss = abs(v_losses['ROI_Percent'].mean()) if not v_losses.empty else 0
+            v_rr_ratio = v_avg_win / v_avg_loss if v_avg_loss > 0 else 0
+            
+            # 기댓값 = (승률 * 평균수익) - (패율 * 평균손실)
+            v_win_prob = v_win_rate / 100
+            v_loss_prob = 1 - v_win_prob
+            v_expectancy = (v_win_prob * v_avg_win) - (v_loss_prob * v_avg_loss)
+            
+            # 메트릭 표시
+            st.caption(f"🔎 **{vic_period}** 데이터 기준 분석 ({len(vic_df)}건)")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("기간 손익비 (R/R)", f"{v_rr_ratio:.2f} : 1",
+                    delta="목표 달성" if v_rr_ratio >= 3.0 else "목표 미달",
+                    delta_color="normal" if v_rr_ratio >= 3.0 else "inverse")
+            with c2:
+                st.metric("기간 기댓값 (Edge)", f"{v_expectancy:.2f}%")
+            with c3:
+                st.metric("빅터의 목표 기준", "3.0 : 1")
+                
+            st.divider()
+            
+            # 차트 그리기
+            # 타겟 라인은 해당 기간의 평균 손실을 기준으로 동적으로 변화
+            target_roi_period = v_avg_loss * 3 if v_avg_loss > 0 else 10
+            
+            conditions = [
+                (vic_df['ROI_Percent'] >= target_roi_period),
+                (vic_df['ROI_Percent'] > 0)
+            ]
+            colors = ["#00CC00", "#F1C40F"]
+            vic_df['Color_Hex'] = np.select(conditions, colors, default="#FF4B4B")
+            
+            st.caption(f"💡 현재 조회 기간의 **평균 손실({v_avg_loss:.1f}%)** 대비 **3배 수익({target_roi_period:.1f}%)** 구간을 표시합니다.")
 
-        scatter_chart = alt.Chart(scatter_df).mark_circle(size=100).encode(
-            x=alt.X('Date', title='거래 일자'),
-            y=alt.Y('ROI_Percent', title='수익률 (%)'),
-            color=alt.Color('Color_Hex', scale=None, legend=None), # 미리 계산된 색상 사용
-            tooltip=['Ticker', 'Date', 'ROI_Percent', 'P_L_Amount']
-        ).interactive()
+            scatter_chart = alt.Chart(vic_df).mark_circle(size=100).encode(
+                x=alt.X('Date', title='거래 일자'),
+                y=alt.Y('ROI_Percent', title='수익률 (%)'),
+                color=alt.Color('Color_Hex', scale=None, legend=None),
+                tooltip=['Ticker', 'Date', 'ROI_Percent', 'P_L_Amount']
+            ).interactive()
 
-        rule_line = alt.Chart(pd.DataFrame({'y': [target_roi]})).mark_rule(color='blue', strokeDash=[3,3]).encode(y='y')
-        st.altair_chart(scatter_chart + rule_line, use_container_width=True)
-
-        st.info("🔵 **파란 점선**은 현재 평균 손실 대비 3배 수익 구간을 의미합니다.")
-        st.divider()
-        
-        if expectancy > 0 and risk_reward_ratio >= 3.0:
-            st.success("💎 **[전설적인 상태]** 훌륭합니다! 원칙을 잘 지키고 계시네요.")
-        elif expectancy > 0 and risk_reward_ratio < 3.0:
-            st.warning(f"🔔 **[개선 필요]** 수익은 나고 있지만, 손익비({risk_reward_ratio:.2f})를 3.0까지 올리는 노력이 필요합니다.")
+            rule_line = alt.Chart(pd.DataFrame({'y': [target_roi_period]})).mark_rule(color='blue', strokeDash=[3,3]).encode(y='y')
+            st.altair_chart(scatter_chart + rule_line, use_container_width=True)
+            
+            # 진단 메시지
+            if v_expectancy > 0 and v_rr_ratio >= 3.0:
+                st.success(f"💎 **[Very Good]** {vic_period} 동안 훌륭한 배팅을 하셨군요! 이 감각 유지하십시오.")
+            elif v_expectancy > 0 and v_rr_ratio < 3.0:
+                st.warning(f"🔔 **[Check]** {vic_period} 동안 수익은 났지만, 손익비가 3.0 미만입니다. 더 크게 먹는 연습이 필요합니다.")
+            else:
+                st.error(f"🚨 **[Warning]** {vic_period} 동안 통계적 우위가 무너졌습니다. 매매 횟수를 줄이고 확실한 자리만 노리세요.")
         else:
-            st.error("🚨 **[위험 경보]** 현재 통계적 우위가 없습니다. 3:1 자리를 더 신중하게 기다리세요.")
+            st.info(f"📭 선택하신 **{vic_period}**에는 매매 기록이 없습니다.")
 
     # === TAB 6: 수익쿠션 계산기 ===
     with tab6:
