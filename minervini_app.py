@@ -86,7 +86,7 @@ def load_data():
 df = load_data()
 krx_list = get_krx_list() 
 
-# --- [수정됨] 사이드바 입력 (수익률 기준 심플 버전) ---
+# --- 사이드바 입력 ---
 st.sidebar.header("📝 매매 기록 입력")
 with st.sidebar.form("quick_input", clear_on_submit=True):
     date = st.date_input("일자", datetime.today())
@@ -149,7 +149,8 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 차트", "📅 월별", "📆 연도별", "📋 원본", "⚖️ 빅터 스페란데오", "🧮 수익쿠션"])
+    # 탭 이름 변경: 수익쿠션 -> 스노우볼(복리)
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 차트", "📅 월별", "📆 연도별", "📋 원본", "⚖️ 빅터 스페란데오", "💸 스노우볼(복리)"])
     
     df['Year'] = df['Date'].dt.year
     df['YearMonth'] = df['Date'].dt.strftime('%Y-%m')
@@ -312,47 +313,50 @@ if not df.empty:
         else:
             st.info(f"📭 선택하신 **{vic_period}**에는 매매 기록이 없습니다.")
 
-    # === TAB 6: 수익쿠션 계산기 ===
+    # === [수정/교체됨] TAB 6: 복리 시뮬레이터 (스노우볼) ===
     with tab6:
-        st.subheader("🧮 수익 쿠션 계산기 (Position Sizing)")
-        st.info("💡 값을 입력하고 **[💾 설정 저장하기]**를 누르면 저장됩니다.")
+        st.subheader("💸 스노우볼 시뮬레이터 (The Magic of Compounding)")
+        st.markdown("욕심 부리지 않고 **작은 수익(5~10%)**을 꾸준히 쌓으면, 계좌는 기하급수적으로 폭발합니다!")
         
-        default_account = float(saved_config.get('total_account', 10000000.0))
-        default_profit = float(saved_config.get('open_profit', 0.0))
-        default_buy = float(saved_config.get('current_buy_amt', 5000000.0))
-        default_loss_pct = float(saved_config.get('loss_cut_pct', 5.0))
+        col_input, col_chart = st.columns([1, 2])
         
-        with st.form("cushion_form"):
-            c1, c2 = st.columns(2)
-            with c1:
-                total_account = st.number_input("총 추정자산", value=default_account, step=100000.0)
-                open_profit = st.number_input("현재 총 수익금", value=default_profit, step=10000.0)
-            with c2:
-                current_buy_amt = st.number_input("현재 보유주식 총 매수금액", value=default_buy, step=100000.0)
-                loss_cut_pct = st.number_input("평균 손절 계획 (%)", value=default_loss_pct, step=0.5)
+        with col_input:
+            st.info("⚙️ **시뮬레이션 설정**")
+            start_money = st.number_input("시작 원금 (원)", value=10000000, step=1000000)
+            target_roi_sim = st.slider("목표 수익률 (1회당)", 1, 30, 5)
+            trades_count = st.slider("거래 횟수 (복리 반복)", 10, 100, 30, 5)
             
-            if st.form_submit_button("💾 설정 저장하기"):
-                new_config = pd.DataFrame([{'total_account': total_account, 'open_profit': open_profit, 'current_buy_amt': current_buy_amt, 'loss_cut_pct': loss_cut_pct}])
-                conn.update(worksheet=1, data=new_config)
-                st.toast("✅ 저장 완료!"); st.rerun()
-
-        open_risk = current_buy_amt * (loss_cut_pct / 100)
-        st.divider()
-        
-        safety_margin = st.slider("수익금의 몇 %를 쿠션으로 쓸까요?", 10, 100, 50, 10)
-        
-        if open_profit > 0:
-            safe_cushion = open_profit * (safety_margin / 100)
-            target_sl_pct = st.slider("신규 진입 손절폭 (%)", 1.0, 30.0, 5.0, 0.5)
-            investable = safe_cushion / (target_sl_pct / 100)
-            cushion_percent = (open_profit / total_account) * 100 if total_account > 0 else 0
+            st.write("---")
+            final_money = start_money * ((1 + target_roi_sim/100) ** trades_count)
+            profit_rate_total = ((final_money - start_money) / start_money) * 100
             
-            st.markdown(f"#### 📊 현재 수익 쿠션: **{cushion_percent:.2f}%**")
-            st.markdown(f"#### 💰 추천 매수 금액: **:blue[{investable:,.0f}원]**")
+            st.metric("예상 최종 금액", f"{final_money:,.0f}원", f"+{profit_rate_total:,.0f}%")
             
-            if open_profit > open_risk: st.success("💎 **House Money 상태!** 안전합니다.")
-            else: st.warning("⚠️ **주의:** 리스크가 수익금을 초과했습니다.")
-        else: st.warning("⚠️ 수익 쿠션이 없어서 계산할 수 없습니다.")
+        with col_chart:
+            # 복리 데이터 생성
+            sim_data = []
+            current = start_money
+            for i in range(trades_count + 1):
+                sim_data.append({"Trade": i, "Balance": current})
+                if i < trades_count:
+                    current = current * (1 + target_roi_sim/100)
+            
+            sim_df = pd.DataFrame(sim_data)
+            
+            # 차트 그리기
+            line = alt.Chart(sim_df).mark_line(color='#00CC00', strokeWidth=3).encode(
+                x=alt.X('Trade', title='거래 횟수'),
+                y=alt.Y('Balance', title='계좌 잔고 (원)'),
+                tooltip=['Trade', alt.Tooltip('Balance', format=',.0f')]
+            )
+            
+            area = alt.Chart(sim_df).mark_area(color='#00CC00', opacity=0.1).encode(
+                x='Trade', y='Balance'
+            )
+            
+            st.altair_chart(line + area, use_container_width=True)
+            
+        st.warning(f"💡 **인사이트:** {start_money/10000:,.0f}만원으로 시작해서 매번 **{target_roi_sim}%**씩 **{trades_count}번**만 익절해도, 계좌는 **{final_money/10000:,.0f}만원**이 됩니다. 대박주 하나 찾는 것보다 '꾸준함'이 훨씬 무섭습니다.")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
