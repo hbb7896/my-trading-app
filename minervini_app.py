@@ -149,8 +149,8 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 이름 변경: 수익쿠션 -> 스노우볼(복리)
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 차트", "📅 월별", "📆 연도별", "📋 원본", "⚖️ 빅터 스페란데오", "💸 스노우볼(복리)"])
+    # 탭 이름 변경: 스노우볼 -> 매매 신호등
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 차트", "📅 월별", "📆 연도별", "📋 원본", "⚖️ 빅터 스페란데오", "🚥 매매 신호등"])
     
     df['Year'] = df['Date'].dt.year
     df['YearMonth'] = df['Date'].dt.strftime('%Y-%m')
@@ -313,50 +313,89 @@ if not df.empty:
         else:
             st.info(f"📭 선택하신 **{vic_period}**에는 매매 기록이 없습니다.")
 
-    # === [수정/교체됨] TAB 6: 복리 시뮬레이터 (스노우볼) ===
+    # === [수정/교체됨] TAB 6: 매매 신호등 (Stance) ===
     with tab6:
-        st.subheader("💸 스노우볼 시뮬레이터 (The Magic of Compounding)")
-        st.markdown("욕심 부리지 않고 **작은 수익(5~10%)**을 꾸준히 쌓으면, 계좌는 기하급수적으로 폭발합니다!")
+        st.subheader("🚥 매매 신호등 (Market Climate & Trading Stance)")
+        st.markdown("최근 **10번의 매매**를 분석하여 현재 공격해야 할 때인지, 수비해야 할 때인지 알려줍니다.")
         
-        col_input, col_chart = st.columns([1, 2])
+        recent_n = 10
+        df_recent = df.sort_values('Date', ascending=False).head(recent_n)
         
-        with col_input:
-            st.info("⚙️ **시뮬레이션 설정**")
-            start_money = st.number_input("시작 원금 (원)", value=10000000, step=1000000)
-            target_roi_sim = st.slider("목표 수익률 (1회당)", 1, 30, 5)
-            trades_count = st.slider("거래 횟수 (복리 반복)", 10, 100, 30, 5)
+        if len(df_recent) < 5:
+            st.warning(f"⚠️ 데이터가 부족합니다. 최소 5건 이상의 매매 기록이 쌓이면 신호등이 켜집니다. (현재: {len(df_recent)}건)")
+        else:
+            # 최근 데이터 분석
+            r_wins = df_recent[df_recent['ROI_Percent'] > 0]
+            r_win_rate = (len(r_wins) / len(df_recent)) * 100
+            r_total_pl = df_recent['P_L_Amount'].sum()
             
-            st.write("---")
-            final_money = start_money * ((1 + target_roi_sim/100) ** trades_count)
-            profit_rate_total = ((final_money - start_money) / start_money) * 100
+            # 신호등 로직
+            status = ""
+            bg_color = ""
+            advice = ""
             
-            st.metric("예상 최종 금액", f"{final_money:,.0f}원", f"+{profit_rate_total:,.0f}%")
+            # 🟢 공격 (승률 50% 이상이고 수익금이 플러스)
+            if r_win_rate >= 50 and r_total_pl > 0:
+                status = "🟢 공격 (AGGRESSIVE)"
+                bg_color = "#e6ffe6"
+                advice = """
+                ### 🚀 **지금은 물 들어온 때입니다! 노 저으세요!**
+                * **승률:** 최근 타율이 아주 좋습니다. 시장 리듬과 내 매매가 동기화되어 있습니다.
+                * **행동:** 평소 배팅 금액의 **100% ~ 120%**까지 사용해도 좋습니다.
+                * **전략:** 주도주 돌파 매매, 눌림목 매수 등 적극적으로 기회를 찾으세요.
+                """
+            # 🔴 수비 (승률 30% 미만이거나 손실이 큼)
+            elif r_win_rate < 30 or r_total_pl < -1000000: # 예: 100만원 이상 손실 시 (금액은 자산대비로 수정 가능)
+                status = "🔴 수비 (DEFENSIVE)"
+                bg_color = "#ffe6e6"
+                advice = """
+                ### 🛡️ **지금은 웅크려야 할 때입니다.**
+                * **상태:** 최근 매매가 꼬여있습니다. 시장이 안 좋거나, 뇌동매매를 하고 있을 수 있습니다.
+                * **행동:** 배팅 금액을 평소의 **20% ~ 50%**로 확 줄이세요. 현금을 확보하세요.
+                * **전략:** 확실한 자리가 아니면 매매를 3일 정도 쉬는 것도 방법입니다.
+                """
+            # 🟡 중립 (그 외 애매한 구간)
+            else:
+                status = "🟡 경계 (CAUTION)"
+                bg_color = "#fffxe6"
+                advice = """
+                ### 👀 **돌다리도 두들겨 보고 건너세요.**
+                * **상태:** 크게 잃지도 않지만, 시원하게 벌리지도 않는 구간입니다.
+                * **행동:** 배팅 금액은 평소의 **50% ~ 70%** 정도가 적당합니다.
+                * **전략:** 이익 줄 때 챙기는 '줄먹' 전략이 유효합니다. 손절은 평소보다 짧게 잡으세요.
+                """
             
-        with col_chart:
-            # 복리 데이터 생성
-            sim_data = []
-            current = start_money
-            for i in range(trades_count + 1):
-                sim_data.append({"Trade": i, "Balance": current})
-                if i < trades_count:
-                    current = current * (1 + target_roi_sim/100)
+            # UI 표시
+            st.markdown(f"""
+            <div style="background-color: {bg_color}; padding: 20px; border-radius: 10px; border: 1px solid #ddd;">
+                <h2 style="text-align: center; margin: 0;">{status}</h2>
+                <p style="text-align: center;">최근 10회 매매 기준: 승률 <strong>{r_win_rate:.1f}%</strong> | 합산 손익 <strong>{r_total_pl:,.0f}원</strong></p>
+            </div>
+            """, unsafe_allow_html=True)
             
-            sim_df = pd.DataFrame(sim_data)
+            st.markdown(advice)
             
-            # 차트 그리기
-            line = alt.Chart(sim_df).mark_line(color='#00CC00', strokeWidth=3).encode(
-                x=alt.X('Trade', title='거래 횟수'),
-                y=alt.Y('Balance', title='계좌 잔고 (원)'),
-                tooltip=['Trade', alt.Tooltip('Balance', format=',.0f')]
+            st.divider()
+            st.subheader("📉 최근 10회 손익 추세 (Equity Curve)")
+            
+            # 누적 손익 그래프를 위해 데이터 역순 정렬 (과거 -> 현재)
+            df_chart = df_recent.sort_values('Date', ascending=True).copy()
+            df_chart['Trade_Num'] = range(1, len(df_chart) + 1)
+            df_chart['Cum_PL'] = df_chart['P_L_Amount'].cumsum()
+            
+            # 색상 조건 (양수면 빨강/음수면 파랑 -> 한국 주식 스타일?) 
+            # 아니면 수익곡선은 그냥 우상향이 좋으니 선 그래프로.
+            
+            line = alt.Chart(df_chart).mark_line(point=True, strokeWidth=3).encode(
+                x=alt.X('Trade_Num', title='최근 거래 순서 (1=가장 오래됨, 10=최신)'),
+                y=alt.Y('Cum_PL', title='누적 손익 (원)'),
+                tooltip=['Date', 'Ticker', 'P_L_Amount', 'Cum_PL']
             )
             
-            area = alt.Chart(sim_df).mark_area(color='#00CC00', opacity=0.1).encode(
-                x='Trade', y='Balance'
-            )
+            # 0선 기준선
+            rule = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='gray', strokeDash=[2,2]).encode(y='y')
             
-            st.altair_chart(line + area, use_container_width=True)
-            
-        st.warning(f"💡 **인사이트:** {start_money/10000:,.0f}만원으로 시작해서 매번 **{target_roi_sim}%**씩 **{trades_count}번**만 익절해도, 계좌는 **{final_money/10000:,.0f}만원**이 됩니다. 대박주 하나 찾는 것보다 '꾸준함'이 훨씬 무섭습니다.")
+            st.altair_chart(line + rule, use_container_width=True)
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
