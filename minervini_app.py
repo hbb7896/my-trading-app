@@ -86,45 +86,40 @@ def load_data():
 df = load_data()
 krx_list = get_krx_list() 
 
-# --- [수정됨] 사이드바 입력 (자동 계산 기능 추가) ---
+# --- [수정됨] 사이드바 입력 (수익률 기준 심플 버전) ---
 st.sidebar.header("📝 매매 기록 입력")
 with st.sidebar.form("quick_input", clear_on_submit=True):
     date = st.date_input("일자", datetime.today())
     ticker = st.text_input("종목명 (예: 삼성전자)").strip()
     
     st.markdown("---")
-    # 입력 방식 선택 스위치
-    input_method = st.radio("입력 방식 선택", ["💰 매도금액 기준 (HTS 보고 입력)", "📈 수익률 기준 (%)"], horizontal=True)
     
-    # 1. 매수 금액은 공통 필수
+    # 1. 매수 금액 입력
     buy_amt = st.number_input("총 매수 금액 (원)", value=0, step=100000)
     
-    # 변수 초기화
+    # 2. 수익률 입력
+    roi = st.number_input("수익률 (%)", value=0.0, format="%.2f")
+    
+    # 변수 초기화 및 자동 계산
     sell_amt = 0.0
     pn_l = 0.0
-    roi = 0.0
 
-    # 2. 선택한 방식에 따라 입력창 다르게 보여주기
-    if input_method == "💰 매도금액 기준 (HTS 보고 입력)":
-        sell_amt = st.number_input("총 매도 금액 (원)", value=0, step=100000)
-        if buy_amt != 0:
-            pn_l = sell_amt - buy_amt
-            roi = (pn_l / buy_amt) * 100
-            st.info(f"🧮 자동 계산: 수익금 {pn_l:,.0f}원 / 수익률 {roi:.2f}%")
-            
-    else: # 수익률 기준
-        roi = st.number_input("수익률 (%)", value=0.0, format="%.2f")
-        if buy_amt != 0:
-            pn_l = buy_amt * (roi / 100)
-            sell_amt = buy_amt + pn_l
-            st.info(f"🧮 자동 계산: 수익금 {pn_l:,.0f}원 / 매도금액 {sell_amt:,.0f}원")
+    if buy_amt != 0:
+        pn_l = buy_amt * (roi / 100)
+        sell_amt = buy_amt + pn_l
+        
+        # 계산 결과 미리보기
+        st.info(f"""
+        🧮 **자동 계산 결과**
+        - 수익금: {pn_l:,.0f}원
+        - 매도금액: {sell_amt:,.0f}원
+        """)
 
     st.markdown("---")
     memo = st.text_input("메모 (특이사항 등)")
     
     if st.form_submit_button("기록 저장"):
         if ticker:
-            # 최종적으로 계산된 값들을 저장
             new_data = pd.DataFrame([{
                 'Date': date.strftime('%Y-%m-%d'), 
                 'Ticker': ticker, 
