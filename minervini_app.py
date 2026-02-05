@@ -86,24 +86,45 @@ def load_data():
 df = load_data()
 krx_list = get_krx_list() 
 
-# --- 사이드바 입력 ---
+# --- [수정됨] 사이드바 입력 (자동 계산 기능 추가) ---
 st.sidebar.header("📝 매매 기록 입력")
 with st.sidebar.form("quick_input", clear_on_submit=True):
     date = st.date_input("일자", datetime.today())
     ticker = st.text_input("종목명 (예: 삼성전자)").strip()
+    
+    st.markdown("---")
+    # 입력 방식 선택 스위치
+    input_method = st.radio("입력 방식 선택", ["💰 매도금액 기준 (HTS 보고 입력)", "📈 수익률 기준 (%)"], horizontal=True)
+    
+    # 1. 매수 금액은 공통 필수
     buy_amt = st.number_input("총 매수 금액 (원)", value=0, step=100000)
-    pn_l = st.number_input("실현 손익금 (원)", value=0, step=10000)
-    roi = st.number_input("수익률 (%)", value=0.0, format="%.2f")
     
-    if buy_amt != 0:
-        st.caption(f"💡 예상 매도 금액: {buy_amt + pn_l:,.0f}원")
-    
-    st.divider()
+    # 변수 초기화
+    sell_amt = 0.0
+    pn_l = 0.0
+    roi = 0.0
+
+    # 2. 선택한 방식에 따라 입력창 다르게 보여주기
+    if input_method == "💰 매도금액 기준 (HTS 보고 입력)":
+        sell_amt = st.number_input("총 매도 금액 (원)", value=0, step=100000)
+        if buy_amt != 0:
+            pn_l = sell_amt - buy_amt
+            roi = (pn_l / buy_amt) * 100
+            st.info(f"🧮 자동 계산: 수익금 {pn_l:,.0f}원 / 수익률 {roi:.2f}%")
+            
+    else: # 수익률 기준
+        roi = st.number_input("수익률 (%)", value=0.0, format="%.2f")
+        if buy_amt != 0:
+            pn_l = buy_amt * (roi / 100)
+            sell_amt = buy_amt + pn_l
+            st.info(f"🧮 자동 계산: 수익금 {pn_l:,.0f}원 / 매도금액 {sell_amt:,.0f}원")
+
+    st.markdown("---")
     memo = st.text_input("메모 (특이사항 등)")
     
     if st.form_submit_button("기록 저장"):
         if ticker:
-            sell_amt = buy_amt + pn_l
+            # 최종적으로 계산된 값들을 저장
             new_data = pd.DataFrame([{
                 'Date': date.strftime('%Y-%m-%d'), 
                 'Ticker': ticker, 
@@ -123,7 +144,7 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
                 df_temp['Date'] = df_temp['Date'].dt.strftime('%Y-%m-%d')
                 updated_df = pd.concat([df_temp, new_data], ignore_index=True)
             conn.update(worksheet=0, data=updated_df)
-            st.success(f"✅ {ticker} 저장 완료!"); st.rerun()
+            st.success(f"✅ {ticker} 저장 완료! (수익률 {roi:.2f}%)"); st.rerun()
         else: st.error("종목명을 입력해주세요.")
 
 if krx_list.empty: st.sidebar.caption("⚠️ 리스트 로딩 실패")
@@ -138,7 +159,6 @@ if not df.empty:
     df['Year'] = df['Date'].dt.year
     df['YearMonth'] = df['Date'].dt.strftime('%Y-%m')
     
-    # [전체 통계용] - 탭 1~3에서 사용
     total_trades = len(df)
     wins = df[df['ROI_Percent'] > 0]
     losses = df[df['ROI_Percent'] <= 0]
@@ -222,15 +242,13 @@ if not df.empty:
     # === TAB 4: 원본 ===
     with tab4: st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
 
-    # === [수정됨] TAB 5: 빅터 스페란데오 분석 (기간 필터 추가) ===
+    # === TAB 5: 빅터 스페란데오 분석 ===
     with tab5:
         st.subheader("⚖️ Victor Sperandeo's Reward-to-Risk Analysis")
         st.markdown("> **\"최소 3:1의 보상 비율이 나오지 않는 거래는 시작조차 하지 마라.\"** - Victor Sperandeo")
         
-        # [NEW] 기간 선택 기능
         vic_period = st.radio("📅 분석 기간 선택", ["전체", "최근 1개월", "최근 3개월", "최근 6개월", "최근 1년"], horizontal=True)
         
-        # 데이터 필터링
         vic_df = df.copy()
         today = datetime.today()
         
@@ -244,7 +262,6 @@ if not df.empty:
             vic_df = vic_df[vic_df['Date'] >= (today - timedelta(days=365))]
             
         if not vic_df.empty:
-            # 선택된 기간에 대한 통계 재계산
             v_wins = vic_df[vic_df['ROI_Percent'] > 0]
             v_losses = vic_df[vic_df['ROI_Percent'] <= 0]
             
@@ -253,12 +270,10 @@ if not df.empty:
             v_avg_loss = abs(v_losses['ROI_Percent'].mean()) if not v_losses.empty else 0
             v_rr_ratio = v_avg_win / v_avg_loss if v_avg_loss > 0 else 0
             
-            # 기댓값 = (승률 * 평균수익) - (패율 * 평균손실)
             v_win_prob = v_win_rate / 100
             v_loss_prob = 1 - v_win_prob
             v_expectancy = (v_win_prob * v_avg_win) - (v_loss_prob * v_avg_loss)
             
-            # 메트릭 표시
             st.caption(f"🔎 **{vic_period}** 데이터 기준 분석 ({len(vic_df)}건)")
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -272,8 +287,6 @@ if not df.empty:
                 
             st.divider()
             
-            # 차트 그리기
-            # 타겟 라인은 해당 기간의 평균 손실을 기준으로 동적으로 변화
             target_roi_period = v_avg_loss * 3 if v_avg_loss > 0 else 10
             
             conditions = [
@@ -295,7 +308,6 @@ if not df.empty:
             rule_line = alt.Chart(pd.DataFrame({'y': [target_roi_period]})).mark_rule(color='blue', strokeDash=[3,3]).encode(y='y')
             st.altair_chart(scatter_chart + rule_line, use_container_width=True)
             
-            # 진단 메시지
             if v_expectancy > 0 and v_rr_ratio >= 3.0:
                 st.success(f"💎 **[Very Good]** {vic_period} 동안 훌륭한 배팅을 하셨군요! 이 감각 유지하십시오.")
             elif v_expectancy > 0 and v_rr_ratio < 3.0:
