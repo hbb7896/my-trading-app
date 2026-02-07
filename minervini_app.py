@@ -6,6 +6,7 @@ import FinanceDataReader as fdr
 import altair as alt
 from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
+import random
 
 # 1. 페이지 설정
 st.set_page_config(page_title="Trading Master Dashboard", page_icon="💎", layout="wide")
@@ -149,8 +150,11 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 이름 변경: 스노우볼 -> 매매 신호등
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 차트", "📅 월별", "📆 연도별", "📋 원본", "⚖️ 빅터 스페란데오", "🚥 매매 신호등"])
+    # 탭 구성: 총 7개
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+        "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
+        "⚖️ 빅터 스페란데오", "🚥 매매 신호등", "🛡️ 파산 제로"
+    ])
     
     df['Year'] = df['Date'].dt.year
     df['YearMonth'] = df['Date'].dt.strftime('%Y-%m')
@@ -313,7 +317,7 @@ if not df.empty:
         else:
             st.info(f"📭 선택하신 **{vic_period}**에는 매매 기록이 없습니다.")
 
-    # === [수정/교체됨] TAB 6: 매매 신호등 (Stance) ===
+    # === [Restored] TAB 6: 매매 신호등 ===
     with tab6:
         st.subheader("🚥 매매 신호등 (Market Climate & Trading Stance)")
         st.markdown("최근 **10번의 매매**를 분석하여 현재 공격해야 할 때인지, 수비해야 할 때인지 알려줍니다.")
@@ -324,17 +328,12 @@ if not df.empty:
         if len(df_recent) < 5:
             st.warning(f"⚠️ 데이터가 부족합니다. 최소 5건 이상의 매매 기록이 쌓이면 신호등이 켜집니다. (현재: {len(df_recent)}건)")
         else:
-            # 최근 데이터 분석
             r_wins = df_recent[df_recent['ROI_Percent'] > 0]
             r_win_rate = (len(r_wins) / len(df_recent)) * 100
             r_total_pl = df_recent['P_L_Amount'].sum()
             
-            # 신호등 로직
-            status = ""
-            bg_color = ""
-            advice = ""
+            status = ""; bg_color = ""; advice = ""
             
-            # 🟢 공격 (승률 50% 이상이고 수익금이 플러스)
             if r_win_rate >= 50 and r_total_pl > 0:
                 status = "🟢 공격 (AGGRESSIVE)"
                 bg_color = "#e6ffe6"
@@ -342,19 +341,15 @@ if not df.empty:
                 ### 🚀 **지금은 물 들어온 때입니다! 노 저으세요!**
                 * **승률:** 최근 타율이 아주 좋습니다. 시장 리듬과 내 매매가 동기화되어 있습니다.
                 * **행동:** 평소 배팅 금액의 **100% ~ 120%**까지 사용해도 좋습니다.
-                * **전략:** 주도주 돌파 매매, 눌림목 매수 등 적극적으로 기회를 찾으세요.
                 """
-            # 🔴 수비 (승률 30% 미만이거나 손실이 큼)
-            elif r_win_rate < 30 or r_total_pl < -1000000: # 예: 100만원 이상 손실 시 (금액은 자산대비로 수정 가능)
+            elif r_win_rate < 30 or r_total_pl < -1000000:
                 status = "🔴 수비 (DEFENSIVE)"
                 bg_color = "#ffe6e6"
                 advice = """
                 ### 🛡️ **지금은 웅크려야 할 때입니다.**
                 * **상태:** 최근 매매가 꼬여있습니다. 시장이 안 좋거나, 뇌동매매를 하고 있을 수 있습니다.
                 * **행동:** 배팅 금액을 평소의 **20% ~ 50%**로 확 줄이세요. 현금을 확보하세요.
-                * **전략:** 확실한 자리가 아니면 매매를 3일 정도 쉬는 것도 방법입니다.
                 """
-            # 🟡 중립 (그 외 애매한 구간)
             else:
                 status = "🟡 경계 (CAUTION)"
                 bg_color = "#fffxe6"
@@ -362,40 +357,95 @@ if not df.empty:
                 ### 👀 **돌다리도 두들겨 보고 건너세요.**
                 * **상태:** 크게 잃지도 않지만, 시원하게 벌리지도 않는 구간입니다.
                 * **행동:** 배팅 금액은 평소의 **50% ~ 70%** 정도가 적당합니다.
-                * **전략:** 이익 줄 때 챙기는 '줄먹' 전략이 유효합니다. 손절은 평소보다 짧게 잡으세요.
                 """
             
-            # UI 표시
             st.markdown(f"""
             <div style="background-color: {bg_color}; padding: 20px; border-radius: 10px; border: 1px solid #ddd;">
                 <h2 style="text-align: center; margin: 0;">{status}</h2>
                 <p style="text-align: center;">최근 10회 매매 기준: 승률 <strong>{r_win_rate:.1f}%</strong> | 합산 손익 <strong>{r_total_pl:,.0f}원</strong></p>
             </div>
             """, unsafe_allow_html=True)
-            
             st.markdown(advice)
             
             st.divider()
-            st.subheader("📉 최근 10회 손익 추세 (Equity Curve)")
+            st.subheader("📉 최근 10회 손익 추세")
             
-            # 누적 손익 그래프를 위해 데이터 역순 정렬 (과거 -> 현재)
             df_chart = df_recent.sort_values('Date', ascending=True).copy()
             df_chart['Trade_Num'] = range(1, len(df_chart) + 1)
             df_chart['Cum_PL'] = df_chart['P_L_Amount'].cumsum()
             
-            # 색상 조건 (양수면 빨강/음수면 파랑 -> 한국 주식 스타일?) 
-            # 아니면 수익곡선은 그냥 우상향이 좋으니 선 그래프로.
-            
             line = alt.Chart(df_chart).mark_line(point=True, strokeWidth=3).encode(
-                x=alt.X('Trade_Num', title='최근 거래 순서 (1=가장 오래됨, 10=최신)'),
+                x=alt.X('Trade_Num', title='최근 거래 순서'),
                 y=alt.Y('Cum_PL', title='누적 손익 (원)'),
                 tooltip=['Date', 'Ticker', 'P_L_Amount', 'Cum_PL']
             )
-            
-            # 0선 기준선
             rule = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='gray', strokeDash=[2,2]).encode(y='y')
-            
             st.altair_chart(line + rule, use_container_width=True)
+
+    # === [NEW] TAB 7: 파산 제로 ===
+    with tab7:
+        st.subheader("🛡️ 파산 제로 (Zero Risk of Ruin Simulator)")
+        st.markdown("내 매매 기록을 바탕으로 **'몬테카를로 시뮬레이션(미래 1,000번 예측)'**을 돌려 파산 확률이 0%가 되는 **'절대 안전 배팅 비중'**을 찾습니다.")
+        
+        if len(df) < 10:
+            st.warning("⚠️ 정확한 시뮬레이션을 위해 최소 10회 이상의 매매 기록이 필요합니다.")
+
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            ruin_threshold = st.slider("파산 기준 (원금의 몇 % 손실 시 파산?)", 30, 90, 50, 10)
+        with col_s2:
+            sim_runs = 1000
+            st.write(f"🧬 시뮬레이션 횟수: **{sim_runs:,}회** (자동 설정)")
+
+        # 시뮬레이션
+        roi_pool = df['ROI_Percent'].dropna().tolist()
+        risk_levels = list(range(1, 31))
+        ruin_probs = []
+        progress_bar = st.progress(0)
+        
+        for idx, bet_pct in enumerate(risk_levels):
+            ruin_count = 0
+            for _ in range(sim_runs):
+                equity = 100.0
+                for _ in range(100):
+                    trade_roi = random.choice(roi_pool) 
+                    bet_amount = equity * (bet_pct / 100)
+                    pnl = bet_amount * (trade_roi / 100)
+                    equity += pnl
+                    if equity <= (100 - ruin_threshold):
+                        ruin_count += 1
+                        break
+            ruin_probs.append((ruin_count / sim_runs) * 100)
+            progress_bar.progress((idx + 1) / len(risk_levels))
+        
+        progress_bar.empty()
+        
+        ruin_df = pd.DataFrame({'Bet_Size_Pct': risk_levels, 'Ruin_Prob': ruin_probs})
+        
+        base_chart = alt.Chart(ruin_df).mark_line(color='red', point=True).encode(
+            x=alt.X('Bet_Size_Pct', title='회당 배팅 비중 (%)'),
+            y=alt.Y('Ruin_Prob', title='파산 확률 (%)', scale=alt.Scale(domain=[0, 100])),
+            tooltip=['Bet_Size_Pct', 'Ruin_Prob']
+        )
+        
+        safe_zone = ruin_df[ruin_df['Ruin_Prob'] == 0]
+        max_safe_bet = safe_zone['Bet_Size_Pct'].max() if not safe_zone.empty else 0
+        
+        st.altair_chart(base_chart, use_container_width=True)
+        st.divider()
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric("파산 확률 0%를 위한 최대 배팅 비중", f"{max_safe_bet}% 이하")
+        with c2:
+            st.metric("권장 배팅 비중 (보수적)", f"{int(max_safe_bet * 0.5)}% ~ {int(max_safe_bet * 0.8)}%")
+            
+        if max_safe_bet > 20:
+            st.success("💎 **[Strong]** 매매 실력이 훌륭합니다! 20% 이상 배팅해도 파산 위험이 없습니다.")
+        elif max_safe_bet > 5:
+            st.info(f"🔔 **[Good]** 현재 실력으로는 **{max_safe_bet}%** 비중까지만 안전합니다. 그 이상은 위험합니다.")
+        else:
+            st.error("🚨 **[Danger]** 파산 위험이 높습니다. 배팅 비중을 극도로 줄이고 실력부터 키우세요.")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
