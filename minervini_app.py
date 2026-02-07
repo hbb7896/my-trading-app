@@ -150,10 +150,10 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 8개
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    # 탭 구성: 총 9개 (VCP 진단기 추가)
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🚥 매매 신호등", "🛡️ 파산 제로", "🛑 매도 검문소"
+        "⚖️ 빅터 스페란데오", "🚥 매매 신호등", "🛡️ 파산 제로", "🛑 매도 검문소", "🔍 VCP 진단기"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -447,7 +447,7 @@ if not df.empty:
         else:
             st.error("🚨 **[Danger]** 파산 위험이 높습니다. 배팅 비중을 극도로 줄이고 실력부터 키우세요.")
 
-    # === [NEW] TAB 8: 매도 검문소 (Exit Checklist) ===
+    # === TAB 8: 매도 검문소 ===
     with tab8:
         st.subheader("🛑 매도 검문소 (Sell Checkpoint)")
         st.markdown("**'팔까 말까'** 고민될 때, 감정은 빼고 냉정하게 체크해보세요. (추세 추종 매매 기준)")
@@ -483,6 +483,138 @@ if not df.empty:
                     st.info("👀 **[관망/홀딩]** 아직 추세가 살아있습니다. 하지만 주의 깊게 지켜보세요.")
                 else:
                     st.success("🟢 **[강력 홀딩]** 편안하게 즐기세요! 추세는 당신의 친구입니다 (Trend is your friend).")
+
+    # === [NEW] TAB 9: VCP 진단기 ===
+    with tab9:
+        st.subheader("🔍 VCP 진단기 (Minervini Scanner)")
+        st.markdown("사장님의 **마크 미너비니 체크리스트**와 **매도 전략**을 자동으로 계산해 드립니다.")
+        
+        # 입력 섹션
+        with st.expander("🔎 종목 분석 입력", expanded=True):
+            vcp_ticker = st.text_input("분석할 종목 코드 (예: 005930 - 삼성전자, AAPL - 애플)", placeholder="티커 입력 후 엔터").strip()
+            
+            # 시장 상황 선택
+            market_cond = st.radio("현재 시장 분위기는 어떤가요?", ["🐂 강세장 (Bull Market)", "🐻 약세장 (Bear Market)"], horizontal=True)
+            
+            analyze_btn = st.button("🚀 분석 시작")
+
+        if analyze_btn and vcp_ticker:
+            try:
+                # 데이터 가져오기 (최근 1년 6개월치 - 200일선 계산 넉넉하게)
+                with st.spinner(f"'{vcp_ticker}' 데이터를 분석 중입니다..."):
+                    # 한국 주식 코드 처리
+                    if vcp_ticker.isdigit(): 
+                        stock = yf.Ticker(f"{vcp_ticker}.KS") # 코스피 기준, 안되면 KQ 시도 필요할수도
+                        # 간단히 확인 위해 KS로 가정, 데이터 없으면 에러 처리
+                    else:
+                        stock = yf.Ticker(vcp_ticker)
+                        
+                    hist = stock.history(period="2y")
+                    
+                    if hist.empty:
+                        st.error("❌ 데이터를 가져올 수 없습니다. 종목 코드를 확인해주세요. (한국 주식은 '.KS'나 '.KQ' 없이 숫자만 입력)")
+                    else:
+                        # --- [1] 데이터 계산 ---
+                        current_price = hist['Close'].iloc[-1]
+                        
+                        # 이동평균선 (SMA)
+                        sma_5 = hist['Close'].rolling(window=5).mean().iloc[-1]
+                        sma_10 = hist['Close'].rolling(window=10).mean().iloc[-1]
+                        sma_20 = hist['Close'].rolling(window=20).mean().iloc[-1]
+                        sma_50 = hist['Close'].rolling(window=50).mean().iloc[-1] # 10주
+                        sma_150 = hist['Close'].rolling(window=150).mean().iloc[-1] # 30주
+                        sma_200 = hist['Close'].rolling(window=200).mean().iloc[-1] # 40주
+                        
+                        # 52주 신고가/신저가
+                        high_52 = hist['Close'].tail(252).max()
+                        low_52 = hist['Close'].tail(252).min()
+                        
+                        # 200일선 추세 (1달 전 대비 상승 여부)
+                        sma_200_prev_month = hist['Close'].rolling(window=200).mean().iloc[-22]
+                        trend_200_up = sma_200 > sma_200_prev_month
+                        
+                        # 지수 대비 강세 여부 (Beta) - 간단하게 최근 3개월 수익률 비교
+                        # 코스피 지수 가져오기
+                        kospi = yf.Ticker("^KS11").history(period="3mo")
+                        if not kospi.empty:
+                            kospi_ret = (kospi['Close'].iloc[-1] / kospi['Close'].iloc[0]) - 1
+                            stock_ret = (hist['Close'].iloc[-1] / hist['Close'].iloc[-60]) - 1 # 대략 3달
+                            stronger_than_index = stock_ret > (kospi_ret * 3) if kospi_ret > 0 else stock_ret > 0 # 지수 상승시 3배, 하락시 양전
+                        else:
+                            stronger_than_index = False # 데이터 없으면 보수적
+                        
+                        # --- [2] 결과 출력: 매수 체크리스트 ---
+                        st.divider()
+                        st.markdown(f"### 📋 **[{vcp_ticker}]** VCP 매수 조건 진단")
+                        st.caption(f"현재가: **{current_price:,.0f}원** (50일선: {sma_50:,.0f}원)")
+                        
+                        c_chk1, c_chk2 = st.columns(2)
+                        
+                        with c_chk1:
+                            st.write("**1. 추세 템플릿 (Trend Template)**")
+                            
+                            # 1. 50 > 150 > 200
+                            cond_ma_order = sma_50 > sma_150 > sma_200
+                            st.checkbox("이평선 정배열 (50 > 150 > 200)", value=cond_ma_order, disabled=True)
+                            
+                            # 2. 200일선 상승 추세
+                            st.checkbox("200일선 1개월 이상 상승 중", value=trend_200_up, disabled=True)
+                            
+                            # 3. 현재가 > 50일선
+                            cond_price_ma = current_price > sma_50
+                            st.checkbox("현재가 > 50일 이평선 (손잡이 위치)", value=cond_price_ma, disabled=True)
+                        
+                        with c_chk2:
+                            st.write("**2. 가격 위치 & 모멘텀**")
+                            
+                            # 4. 52주 신고가 25% 이내
+                            cond_near_high = current_price >= (high_52 * 0.75)
+                            st.checkbox(f"52주 신고가({high_52:,.0f}) 25% 이내", value=cond_near_high, disabled=True)
+                            
+                            # 5. 52주 신저가에서 25% 이상 상승
+                            cond_above_low = current_price >= (low_52 * 1.25)
+                            st.checkbox(f"52주 신저가({low_52:,.0f}) +25% 이상", value=cond_above_low, disabled=True)
+                            
+                            # 6. 지수 대비 강세 (3배 법칙)
+                            st.checkbox("지수보다 3배 이상 강한 상승 추세", value=stronger_than_index, disabled=True)
+
+                        # 수동 확인 필요 항목
+                        st.warning("🧐 **사장님의 '눈'으로 직접 확인해야 할 항목** (차트를 보고 체크하세요)")
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        col_m1.checkbox("스테이지 2 강력한 거래량 발생?")
+                        col_m2.checkbox("손잡이 조정폭 10% 이내?")
+                        col_m3.checkbox("손잡이 구간 거래량 마름 (Dry Up)?")
+                        
+                        # --- [3] 매도 전략 계산기 ---
+                        st.divider()
+                        st.markdown("### 🛑 **매도(청산) 가이드라인**")
+                        
+                        # 시장 상황에 따른 조언
+                        if "강세장" in market_cond:
+                            st.success("🐂 **강세장 전략 (LONG):** 추세를 길게 가져가세요. 손절은 조금 여유 있게 잡으셔도 됩니다.")
+                        else:
+                            st.error("🐻 **약세장 전략 (SHORT/CASH):** 줄 때 먹고 튀어야 합니다. 손절을 타이트하게 잡으세요.")
+                            
+                        t_sell1, t_sell2 = st.columns(2)
+                        
+                        with t_sell1:
+                            st.info("🏃 **단기 급등 / 일반 종목 전략**")
+                            st.markdown(f"""
+                            * **1차 매도 (1/3):** 5일선 이탈 시 → **{sma_5:,.0f}원**
+                            * **2차 매도 (1/3):** 10일선 이탈 시 → **{sma_10:,.0f}원** (일반 종목 1차)
+                            * **3차 매도 (1/3):** 21일선 이탈 시 → **{hist['Close'].rolling(21).mean().iloc[-1]:,.0f}원**
+                            * **최종 방어:** 50일선 이탈 시 → **{sma_50:,.0f}원**
+                            """)
+                            
+                        with t_sell2:
+                            st.info("🐢 **장기 투자 종목 전략**")
+                            st.markdown(f"""
+                            * **절반 매도 (1/2):** 10주선(50일) 이탈 시 → **{sma_50:,.0f}원**
+                            * **전량 매도 (1/2):** 30주선(150일) 이탈 시 → **{sma_150:,.0f}원**
+                            """)
+                            
+            except Exception as e:
+                st.error(f"분석 중 오류가 발생했습니다: {e}")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
