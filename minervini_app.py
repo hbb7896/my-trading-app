@@ -150,10 +150,10 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 7개
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    # 탭 구성: 총 8개
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🚥 매매 신호등", "🛡️ 파산 제로"
+        "⚖️ 빅터 스페란데오", "🚥 매매 신호등", "🛡️ 파산 제로", "🛑 매도 검문소"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -317,7 +317,7 @@ if not df.empty:
         else:
             st.info(f"📭 선택하신 **{vic_period}**에는 매매 기록이 없습니다.")
 
-    # === [Restored] TAB 6: 매매 신호등 ===
+    # === TAB 6: 매매 신호등 ===
     with tab6:
         st.subheader("🚥 매매 신호등 (Market Climate & Trading Stance)")
         st.markdown("최근 **10번의 매매**를 분석하여 현재 공격해야 할 때인지, 수비해야 할 때인지 알려줍니다.")
@@ -382,7 +382,7 @@ if not df.empty:
             rule = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(color='gray', strokeDash=[2,2]).encode(y='y')
             st.altair_chart(line + rule, use_container_width=True)
 
-    # === [NEW] TAB 7: 파산 제로 ===
+    # === TAB 7: 파산 제로 ===
     with tab7:
         st.subheader("🛡️ 파산 제로 (Zero Risk of Ruin Simulator)")
         st.markdown("내 매매 기록을 바탕으로 **'몬테카를로 시뮬레이션(미래 1,000번 예측)'**을 돌려 파산 확률이 0%가 되는 **'절대 안전 배팅 비중'**을 찾습니다.")
@@ -446,6 +446,43 @@ if not df.empty:
             st.info(f"🔔 **[Good]** 현재 실력으로는 **{max_safe_bet}%** 비중까지만 안전합니다. 그 이상은 위험합니다.")
         else:
             st.error("🚨 **[Danger]** 파산 위험이 높습니다. 배팅 비중을 극도로 줄이고 실력부터 키우세요.")
+
+    # === [NEW] TAB 8: 매도 검문소 (Exit Checklist) ===
+    with tab8:
+        st.subheader("🛑 매도 검문소 (Sell Checkpoint)")
+        st.markdown("**'팔까 말까'** 고민될 때, 감정은 빼고 냉정하게 체크해보세요. (추세 추종 매매 기준)")
+        
+        with st.form("sell_check_form"):
+            st.write("🔎 **현재 보유 종목 상태 체크 (Yes/No)**")
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                chk1 = st.checkbox("1. 주가가 20일 이동평균선(20MA)을 깨고 내려왔나요?")
+                chk2 = st.checkbox("2. 주가가 50일 이동평균선(50MA)을 깨고 내려왔나요? (중요)")
+                chk3 = st.checkbox("3. 최근 상승폭의 50% 이상을 반납했나요?")
+            with c2:
+                chk4 = st.checkbox("4. 거래량이 평소보다 크게 터지면서 하락했나요? (기관 매도 의심)")
+                chk5 = st.checkbox("5. 시장(코스피/코스닥)이 하락 추세로 전환되었나요?")
+                chk6 = st.checkbox("6. 내가 정한 손절가(Stop Loss)를 건드렸나요? (절대 원칙)")
+            
+            submitted = st.form_submit_button("판결 내려주세요! 👨‍⚖️")
+            
+            if submitted:
+                risk_score = sum([chk1, chk2, chk3, chk4, chk5, chk6])
+                
+                st.divider()
+                st.markdown(f"### 🎯 진단 결과 (위험 신호: {risk_score}개)")
+                
+                if chk6: # 손절가 터치는 무조건 매도
+                    st.error("🚨 **[긴급 탈출]** 손절가를 건드렸습니다. 이유 불문하고 **전량 매도** 후 생각하세요. 원칙이 생명입니다.")
+                elif risk_score >= 4:
+                    st.error("🛑 **[매도 강력 권장]** 추세가 완전히 꺾였습니다. **전량 매도**하거나 최소 70% 이상 현금화하세요.")
+                elif risk_score >= 2:
+                    st.warning("⚠️ **[경고/비중 축소]** 노란불입니다. **30% ~ 50% 분할 매도**하여 수익을 챙기고, 나머지는 본절(매수가)에 스탑로스 거세요.")
+                elif risk_score == 1:
+                    st.info("👀 **[관망/홀딩]** 아직 추세가 살아있습니다. 하지만 주의 깊게 지켜보세요.")
+                else:
+                    st.success("🟢 **[강력 홀딩]** 편안하게 즐기세요! 추세는 당신의 친구입니다 (Trend is your friend).")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
