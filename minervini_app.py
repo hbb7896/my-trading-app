@@ -150,14 +150,11 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 10개 (불필요한 기능 제거 및 재정렬)
-    # 1-4: 기본 통계
-    # 5-7: 자금 관리 (빅터, 신호등, 파산제로)
-    # 8-10: 멘탈/성과 관리 (MDD, R-배수, 캘린더)
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
+    # 탭 구성: 총 9개 (캘린더 삭제)
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
         "⚖️ 빅터 스페란데오", "🚥 매매 신호등", "🛡️ 파산 제로", 
-        "📉 멘탈 지킴이", "🎯 R-배수 분석", "📅 캘린더"
+        "📉 멘탈 지킴이", "🎯 R-배수 분석"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -251,7 +248,7 @@ if not df.empty:
         st.subheader("⚖️ Victor Sperandeo's Reward-to-Risk Analysis")
         st.markdown("> **\"최소 3:1의 보상 비율이 나오지 않는 거래는 시작조차 하지 마라.\"** - Victor Sperandeo")
         
-        vic_period = st.radio("📅 분석 기간 선택", ["전체", "최근 1개월", "최근 3개월", "최근 6개월", "최근 1년"], horizontal=True)
+        vic_period = st.radio("📅 분석 기간 선택", ["전체", "최근 1개월", "최근 3개월", "최근 6개월", "최근 1년"], horizontal=True, key="vic_radio")
         
         vic_df = df.copy()
         today = datetime.today()
@@ -451,7 +448,7 @@ if not df.empty:
         else:
             st.error("🚨 **[Danger]** 파산 위험이 높습니다. 배팅 비중을 극도로 줄이고 실력부터 키우세요.")
 
-    # === TAB 8: 멘탈 지킴이 (MDD) (구 10번) ===
+    # === TAB 8: 멘탈 지킴이 (MDD) ===
     with tab8:
         st.subheader("📉 멘탈 지킴이 (Drawdown Analysis)")
         st.markdown("**\"내 계좌는 지금 물속 얼마나 깊은 곳에 있을까?\"** (전고점 대비 하락폭 분석)")
@@ -518,124 +515,83 @@ if not df.empty:
         else:
             st.error("🚑 **[응급 상황]** 깊은 물에 빠졌습니다. 지금은 '수익'보다 '생존'이 목표입니다. 무조건 수비적으로 하세요.")
 
-    # === TAB 9: R-배수 분석 (구 12번) ===
+    # === [수정됨] TAB 9: R-배수 분석 (기간 선택 추가) ===
     with tab9:
         st.subheader("🎯 R-배수 분석 (The Real Score)")
-        st.markdown("**'R'은 나의 위험(Risk) 단위입니다.** 내가 1만큼 위험을 걸었을 때, 몇 배를 벌었나요? 이게 진짜 실력입니다.")
+        st.markdown("**'R'은 나의 위험(Risk) 단위입니다.** 내가 1만큼 위험을 걸었을 때, 몇 배를 벌었나요?")
         
-        # 1R = 평균 손실액 (절대값)
-        if not losses.empty:
-            avg_loss_abs = abs(losses['P_L_Amount'].mean())
-        else:
-            avg_loss_abs = 1 # 분모 0 방지용 (손실 없을 때)
+        # [NEW] 기간 선택 필터
+        r_period = st.radio("📅 분석 기간 선택", ["전체", "최근 1개월", "최근 3개월", "최근 6개월", "최근 1년"], horizontal=True, key="r_radio")
+        
+        # 데이터 필터링
+        r_df = df.copy()
+        today = datetime.today()
+        
+        if r_period == "최근 1개월":
+            r_df = r_df[r_df['Date'] >= (today - timedelta(days=30))]
+        elif r_period == "최근 3개월":
+            r_df = r_df[r_df['Date'] >= (today - timedelta(days=90))]
+        elif r_period == "최근 6개월":
+            r_df = r_df[r_df['Date'] >= (today - timedelta(days=180))]
+        elif r_period == "최근 1년":
+            r_df = r_df[r_df['Date'] >= (today - timedelta(days=365))]
             
-        # R값 계산
-        df['R_Value'] = df['P_L_Amount'] / avg_loss_abs
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric("나의 1R (평균 손실금)", f"{avg_loss_abs:,.0f}원")
-        c2.metric("평균 R-배수 (기대 수익)", f"{df['R_Value'].mean():.2f}R")
-        c3.metric("최고 R-배수 (인생 매매)", f"{df['R_Value'].max():.2f}R")
-        
-        st.divider()
-        
-        # 차트 1: R 분포도 (히스토그램)
-        st.write("📊 **R-배수 분포도 (오른쪽으로 꼬리가 길어야 고수!)**")
-        hist_chart = alt.Chart(df).mark_bar().encode(
-            x=alt.X('R_Value', bin=alt.Bin(step=0.5), title='R-배수 구간'),
-            y=alt.Y('count()', title='횟수'),
-            color=alt.condition(alt.datum.R_Value > 0, alt.value("green"), alt.value("red")),
-            tooltip=['count()']
-        )
-        st.altair_chart(hist_chart, use_container_width=True)
-        
-        # 차트 2: 누적 R 곡선 (SQN)
-        st.write("📈 **누적 R 곡선 (자산 규모 뺀 순수 실력 그래프)**")
-        df_sorted_r = df.sort_values('Date').copy()
-        df_sorted_r['Cumulative_R'] = df_sorted_r['R_Value'].cumsum()
-        df_sorted_r['Trade_Num'] = range(1, len(df_sorted_r) + 1)
-        
-        line_r = alt.Chart(df_sorted_r).mark_line(color='blue').encode(
-            x=alt.X('Trade_Num', title='거래 횟수'),
-            y=alt.Y('Cumulative_R', title='누적 R (Total R)'),
-            tooltip=['Date', 'R_Value', 'Cumulative_R']
-        )
-        st.altair_chart(line_r, use_container_width=True)
-        
-        # 인사이트
-        if df['R_Value'].mean() > 0.5:
-            st.success(f"💎 **[훌륭합니다]** 평균적으로 잃을 때보다 **{df['R_Value'].mean():.1f}배** 더 벌고 계십니다. 계좌가 우상향할 수밖에 없습니다.")
-        elif df['R_Value'].mean() > 0:
-            st.warning("🔔 **[분발하세요]** 돈은 벌고 있지만 '가성비'가 떨어집니다. 익절을 조금 더 길게 가져가 보세요.")
-        else:
-            st.error("🚨 **[위험합니다]** 위험 감수 대비 보상이 마이너스입니다. 손절을 더 짧게, 익절은 더 길게 해야 합니다.")
-
-    # === TAB 10: 매매 캘린더 (구 13번) ===
-    with tab10:
-        st.subheader("📅 매매 캘린더 (Trading Streak Challenge)")
-        st.markdown("**'잔디 심기'**를 아시나요? 매일매일 초록불(익절)로 달력을 채워보세요!")
-        
-        # 일별 합계 데이터
-        daily_sum = df.groupby('Date')['P_L_Amount'].sum().reset_index()
-        
-        # 캘린더 히트맵 데이터 준비
-        daily_sum['Year'] = daily_sum['Date'].dt.year
-        daily_sum['Week'] = daily_sum['Date'].dt.isocalendar().week
-        daily_sum['Day'] = daily_sum['Date'].dt.day_name()
-        # 요일 정렬 (월~일)
-        day_order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-        daily_sum['Day_Short'] = daily_sum['Date'].dt.strftime('%a')
-        
-        # 스트릭(연승) 계산
-        streak = 0
-        max_streak = 0
-        # 날짜순 정렬
-        sorted_pl = daily_sum.sort_values('Date')['P_L_Amount'].tolist()
-        
-        current_streak = 0
-        for pl in sorted_pl:
-            if pl > 0:
-                current_streak += 1
+        if not r_df.empty:
+            # 1R 계산 (선택된 기간 내 평균 손실액)
+            # 만약 선택된 기간에 손실 거래가 없다면, 전체 데이터의 평균 손실을 사용하거나 1로 설정
+            r_losses = r_df[r_df['P_L_Amount'] < 0]
+            
+            if not r_losses.empty:
+                avg_loss_abs = abs(r_losses['P_L_Amount'].mean())
             else:
-                max_streak = max(max_streak, current_streak)
-                current_streak = 0
-        # 마지막 스트릭 반영
-        max_streak = max(max_streak, current_streak)
-        
-        # 현재 연승 중인지 확인 (마지막 거래가 수익이면)
-        is_winning_now = sorted_pl[-1] > 0 if sorted_pl else False
-        current_run = 0
-        if is_winning_now:
-            for pl in reversed(sorted_pl):
-                if pl > 0: current_run += 1
-                else: break
-        
-        # 상단 메트릭
-        c1, c2, c3 = st.columns(3)
-        c1.metric("현재 연속 익절 (Current Streak)", f"{current_run}일🔥")
-        c2.metric("최장 연속 익절 (Best Streak)", f"{max_streak}일🏆")
-        c3.metric("이번 달 매매 일수", f"{len(daily_sum[daily_sum['Date'].dt.month == datetime.today().month])}일")
-        
-        st.divider()
-        
-        # 캘린더 히트맵 (Altair)
-        heatmap = alt.Chart(daily_sum).mark_rect().encode(
-            x=alt.X('Week:O', title='주차 (Week)'),
-            y=alt.Y('Day_Short:N', sort=['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], title='요일'),
-            color=alt.condition(
-                alt.datum.P_L_Amount > 0,
-                alt.value("#2E8B57"), # SeaGreen (Win)
-                alt.value("#CD5C5C")  # IndianRed (Loss)
-            ),
-            tooltip=[
-                alt.Tooltip('Date', title='날짜', format='%Y-%m-%d'),
-                alt.Tooltip('P_L_Amount', title='손익', format=',.0f')
-            ]
-        ).properties(width=700, height=200).configure_view(strokeWidth=0)
-        
-        st.altair_chart(heatmap, use_container_width=True)
-        
-        st.caption("💡 **Tip:** 초록색이 많아질수록 사장님의 계좌도 건강해집니다. 빨간색을 두려워하지 말고, 복기하는 습관을 들이세요!")
+                # 기간 내 손실이 없으면 전체 데이터 참고, 그래도 없으면 1 (예외 처리)
+                all_losses = df[df['P_L_Amount'] < 0]
+                avg_loss_abs = abs(all_losses['P_L_Amount'].mean()) if not all_losses.empty else 1
+            
+            # R값 계산
+            r_df['R_Value'] = r_df['P_L_Amount'] / avg_loss_abs
+            
+            st.caption(f"🔎 **{r_period}** 데이터 기준 분석 ({len(r_df)}건) / 적용된 1R: {avg_loss_abs:,.0f}원")
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric(f"나의 1R ({r_period} 평균 손실)", f"{avg_loss_abs:,.0f}원")
+            c2.metric("평균 R-배수 (기대 수익)", f"{r_df['R_Value'].mean():.2f}R")
+            c3.metric("최고 R-배수 (인생 매매)", f"{r_df['R_Value'].max():.2f}R")
+            
+            st.divider()
+            
+            # 차트 1: R 분포도
+            st.write("📊 **R-배수 분포도**")
+            hist_chart = alt.Chart(r_df).mark_bar().encode(
+                x=alt.X('R_Value', bin=alt.Bin(step=0.5), title='R-배수 구간'),
+                y=alt.Y('count()', title='횟수'),
+                color=alt.condition(alt.datum.R_Value > 0, alt.value("green"), alt.value("red")),
+                tooltip=['count()']
+            )
+            st.altair_chart(hist_chart, use_container_width=True)
+            
+            # 차트 2: 누적 R 곡선
+            st.write("📈 **누적 R 곡선 (순수 실력 그래프)**")
+            df_sorted_r = r_df.sort_values('Date').copy()
+            df_sorted_r['Cumulative_R'] = df_sorted_r['R_Value'].cumsum()
+            df_sorted_r['Trade_Num'] = range(1, len(df_sorted_r) + 1)
+            
+            line_r = alt.Chart(df_sorted_r).mark_line(color='blue').encode(
+                x=alt.X('Trade_Num', title='거래 횟수'),
+                y=alt.Y('Cumulative_R', title='누적 R (Total R)'),
+                tooltip=['Date', 'R_Value', 'Cumulative_R']
+            )
+            st.altair_chart(line_r, use_container_width=True)
+            
+            # 인사이트
+            if r_df['R_Value'].mean() > 0.5:
+                st.success(f"💎 **[훌륭합니다]** {r_period} 동안 잃을 때보다 **{r_df['R_Value'].mean():.1f}배** 더 버셨습니다.")
+            elif r_df['R_Value'].mean() > 0:
+                st.warning(f"🔔 **[분발하세요]** {r_period} 동안 돈은 벌고 있지만 '가성비'가 낮습니다.")
+            else:
+                st.error(f"🚨 **[위험합니다]** {r_period} 동안 매매 효율이 마이너스입니다. 손절을 더 짧게 잡으세요.")
+        else:
+            st.info(f"📭 선택하신 **{r_period}**에는 매매 기록이 없습니다.")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
