@@ -150,10 +150,11 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 10개 (탭 9 수정됨)
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
+    # 탭 구성: 총 11개 (탭 11 추가)
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🚥 매매 신호등", "🛡️ 파산 제로", "🛑 매도 검문소", "🔍 롱/숏 진단기", "📉 멘탈 지킴이"
+        "⚖️ 빅터 스페란데오", "🚥 매매 신호등", "🛡️ 파산 제로", "🛑 매도 검문소", 
+        "🔍 롱/숏 진단기", "📉 멘탈 지킴이", "🕵️‍♂️ 셜록 홈즈"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -484,7 +485,7 @@ if not df.empty:
                 else:
                     st.success("🟢 **[강력 홀딩]** 편안하게 즐기세요! 추세는 당신의 친구입니다 (Trend is your friend).")
 
-    # === [수정/통합됨] TAB 9: 롱/숏 진단기 ===
+    # === TAB 9: 롱/숏 진단기 ===
     with tab9:
         st.subheader("🔍 트렌드 스캐너 (Long/Short Strategy)")
         st.markdown("사장님의 원칙에 따라 **상승장(Long)**과 **하락장(Short)** 타점을 모두 분석해 드립니다.")
@@ -686,6 +687,97 @@ if not df.empty:
             st.warning("😐 **[조심하세요]** 계좌가 물에 젖고 있습니다. -15%를 넘어가면 복구가 힘들어집니다. 비중을 줄이세요.")
         else:
             st.error("🚑 **[응급 상황]** 깊은 물에 빠졌습니다. 지금은 '수익'보다 '생존'이 목표입니다. 무조건 수비적으로 하세요.")
+
+    # === [NEW] TAB 11: 셜록 홈즈 (Deep Dive) ===
+    with tab11:
+        st.subheader("🕵️‍♂️ 셜록 홈즈 (Deep Dive Analytics)")
+        st.markdown("데이터에 숨겨진 **사장님의 진짜 실력**과 **약점**을 찾아냅니다.")
+        
+        if len(df) < 5:
+            st.warning("⚠️ 분석할 데이터가 부족합니다. 매매 기록을 더 쌓아주세요!")
+        else:
+            # 1. If-Only 시뮬레이터 (손절 잘했더라면?)
+            st.markdown("### ✂️ **1. '손절만 잘했어도...' 시뮬레이터**")
+            st.caption("과거 모든 거래에서 **손절을 -X%로 칼같이 잘랐다면** 결과가 어땠을지 계산합니다.")
+            
+            cut_loss_limit = st.slider("가정할 손절 한계선 (%)", -20.0, -1.0, -3.0, 0.5)
+            
+            # 시뮬레이션 계산
+            sim_df = df.copy()
+            # ROI가 설정값보다 낮으면(더 큰 손실이면) 설정값으로 강제 변경
+            sim_df['Sim_ROI'] = np.where(sim_df['ROI_Percent'] < cut_loss_limit, cut_loss_limit, sim_df['ROI_Percent'])
+            # 손익금 재계산 (매수금액 * 시뮬레이션 ROI)
+            sim_df['Sim_PL'] = sim_df['Buy_Amount'] * (sim_df['Sim_ROI'] / 100)
+            
+            real_total = df['P_L_Amount'].sum()
+            sim_total = sim_df['Sim_PL'].sum()
+            diff = sim_total - real_total
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("실제 누적 손익", f"{real_total:,.0f}원")
+            c2.metric(f"손절 {cut_loss_limit}% 제한 시", f"{sim_total:,.0f}원")
+            c3.metric("차이 (손실 방어 효과)", f"+{diff:,.0f}원", delta="개선 효과" if diff > 0 else "변화 없음")
+            
+            if diff > 0:
+                st.success(f"💡 **인사이트:** 손절 원칙만 지켰어도 **{diff:,.0f}원**을 더 벌었거나 덜 잃었습니다. '손절은 생명'입니다.")
+            
+            st.divider()
+            
+            # 2. 슬럼프 탐지기 (Rolling Win Rate)
+            st.markdown("### 🎢 **2. 슬럼프 탐지기 (최근 폼은?)**")
+            st.caption("최근 20회 거래의 승률 변화 추세입니다. 그래프가 꺾이면 휴식이 필요합니다.")
+            
+            # 승패 여부 (1=승, 0=패)
+            df['Is_Win'] = np.where(df['ROI_Percent'] > 0, 1, 0)
+            # 롤링 윈도우 (최근 20개)
+            df_sorted = df.sort_values('Date')
+            df_sorted['Rolling_WinRate'] = df_sorted['Is_Win'].rolling(window=20, min_periods=5).mean() * 100
+            
+            line_roll = alt.Chart(df_sorted.reset_index()).mark_line(color='#ff9900').encode(
+                x=alt.X('Date', title='거래 일자'),
+                y=alt.Y('Rolling_WinRate', title='추세 승률 (%)'),
+                tooltip=['Date', 'Rolling_WinRate']
+            )
+            
+            # 50% 기준선
+            rule_50 = alt.Chart(pd.DataFrame({'y': [50]})).mark_rule(color='gray', strokeDash=[2,2]).encode(y='y')
+            
+            st.altair_chart(line_roll + rule_50, use_container_width=True)
+            
+            last_roll_wr = df_sorted['Rolling_WinRate'].iloc[-1]
+            if last_roll_wr >= 50:
+                st.info(f"👍 현재 폼은 나쁘지 않습니다. (최근 추세 승률: {last_roll_wr:.1f}%)")
+            else:
+                st.warning(f"📉 **슬럼프 경보!** 최근 추세 승률이 {last_roll_wr:.1f}%로 저조합니다. 매매 횟수를 줄이세요.")
+                
+            st.divider()
+            
+            # 3. 요일별 분석 (Seasonality)
+            st.markdown("### 📅 **3. 요일의 저주 (언제 돈을 잃나?)**")
+            
+            df['DayOfWeek'] = df['Date'].dt.day_name()
+            # 요일 순서 정렬
+            day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            
+            day_stats = df.groupby('DayOfWeek')['P_L_Amount'].sum().reindex(day_order).dropna().reset_index()
+            
+            bar_day = alt.Chart(day_stats).mark_bar().encode(
+                x=alt.X('DayOfWeek', sort=day_order, title='요일'),
+                y=alt.Y('P_L_Amount', title='누적 손익'),
+                color=alt.condition(
+                    alt.datum.P_L_Amount > 0,
+                    alt.value("green"),
+                    alt.value("red")
+                ),
+                tooltip=['DayOfWeek', 'P_L_Amount']
+            )
+            
+            st.altair_chart(bar_day, use_container_width=True)
+            
+            # 최악의 요일 찾기
+            worst_day = day_stats.sort_values('P_L_Amount').iloc[0]
+            if worst_day['P_L_Amount'] < 0:
+                st.error(f"🚫 **사장님! {worst_day['DayOfWeek']}에는 제발 매매하지 마세요!** 누적 손실이 가장 큽니다 ({worst_day['P_L_Amount']:,.0f}원).")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
