@@ -150,11 +150,14 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 12개 (탭 12 추가)
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
+    # 탭 구성: 총 10개 (불필요한 기능 제거 및 재정렬)
+    # 1-4: 기본 통계
+    # 5-7: 자금 관리 (빅터, 신호등, 파산제로)
+    # 8-10: 멘탈/성과 관리 (MDD, R-배수, 캘린더)
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🚥 매매 신호등", "🛡️ 파산 제로", "🛑 매도 검문소", 
-        "🔍 롱/숏 진단기", "📉 멘탈 지킴이", "🕵️‍♂️ 셜록 홈즈", "🎯 R-배수 분석"
+        "⚖️ 빅터 스페란데오", "🚥 매매 신호등", "🛡️ 파산 제로", 
+        "📉 멘탈 지킴이", "🎯 R-배수 분석", "📅 캘린더"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -448,181 +451,8 @@ if not df.empty:
         else:
             st.error("🚨 **[Danger]** 파산 위험이 높습니다. 배팅 비중을 극도로 줄이고 실력부터 키우세요.")
 
-    # === TAB 8: 매도 검문소 ===
+    # === TAB 8: 멘탈 지킴이 (MDD) (구 10번) ===
     with tab8:
-        st.subheader("🛑 매도 검문소 (Sell Checkpoint)")
-        st.markdown("**'팔까 말까'** 고민될 때, 감정은 빼고 냉정하게 체크해보세요. (추세 추종 매매 기준)")
-        
-        with st.form("sell_check_form"):
-            st.write("🔎 **현재 보유 종목 상태 체크 (Yes/No)**")
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                chk1 = st.checkbox("1. 주가가 20일 이동평균선(20MA)을 깨고 내려왔나요?")
-                chk2 = st.checkbox("2. 주가가 50일 이동평균선(50MA)을 깨고 내려왔나요? (중요)")
-                chk3 = st.checkbox("3. 최근 상승폭의 50% 이상을 반납했나요?")
-            with c2:
-                chk4 = st.checkbox("4. 거래량이 평소보다 크게 터지면서 하락했나요? (기관 매도 의심)")
-                chk5 = st.checkbox("5. 시장(코스피/코스닥)이 하락 추세로 전환되었나요?")
-                chk6 = st.checkbox("6. 내가 정한 손절가(Stop Loss)를 건드렸나요? (절대 원칙)")
-            
-            submitted = st.form_submit_button("판결 내려주세요! 👨‍⚖️")
-            
-            if submitted:
-                risk_score = sum([chk1, chk2, chk3, chk4, chk5, chk6])
-                
-                st.divider()
-                st.markdown(f"### 🎯 진단 결과 (위험 신호: {risk_score}개)")
-                
-                if chk6: # 손절가 터치는 무조건 매도
-                    st.error("🚨 **[긴급 탈출]** 손절가를 건드렸습니다. 이유 불문하고 **전량 매도** 후 생각하세요. 원칙이 생명입니다.")
-                elif risk_score >= 4:
-                    st.error("🛑 **[매도 강력 권장]** 추세가 완전히 꺾였습니다. **전량 매도**하거나 최소 70% 이상 현금화하세요.")
-                elif risk_score >= 2:
-                    st.warning("⚠️ **[경고/비중 축소]** 노란불입니다. **30% ~ 50% 분할 매도**하여 수익을 챙기고, 나머지는 본절(매수가)에 스탑로스 거세요.")
-                elif risk_score == 1:
-                    st.info("👀 **[관망/홀딩]** 아직 추세가 살아있습니다. 하지만 주의 깊게 지켜보세요.")
-                else:
-                    st.success("🟢 **[강력 홀딩]** 편안하게 즐기세요! 추세는 당신의 친구입니다 (Trend is your friend).")
-
-    # === TAB 9: 롱/숏 진단기 ===
-    with tab9:
-        st.subheader("🔍 트렌드 스캐너 (Long/Short Strategy)")
-        st.markdown("사장님의 원칙에 따라 **상승장(Long)**과 **하락장(Short)** 타점을 모두 분석해 드립니다.")
-        
-        with st.expander("🔎 종목 분석 입력", expanded=True):
-            col_input1, col_input2 = st.columns([2, 1])
-            with col_input1:
-                vcp_ticker = st.text_input("분석할 종목 코드 (예: 005930, AAPL)", placeholder="티커 입력 후 엔터").strip()
-            with col_input2:
-                # [NEW] 전략 선택 (롱/숏)
-                strategy_type = st.radio("전략 선택", ["🚀 매수 (Long)", "📉 공매도 (Short)"], horizontal=True)
-            
-            market_cond = st.radio("현재 시장 분위기는?", ["🐂 강세장 (Bull Market)", "🐻 약세장 (Bear Market)"], horizontal=True)
-            analyze_btn = st.button("🚀 분석 시작")
-
-        if analyze_btn and vcp_ticker:
-            try:
-                with st.spinner(f"'{vcp_ticker}' 데이터를 분석 중입니다..."):
-                    if vcp_ticker.isdigit(): 
-                        stock = yf.Ticker(f"{vcp_ticker}.KS")
-                    else:
-                        stock = yf.Ticker(vcp_ticker)
-                        
-                    hist = stock.history(period="2y")
-                    
-                    if hist.empty:
-                        st.error("❌ 데이터를 가져올 수 없습니다. 종목 코드를 확인해주세요.")
-                    else:
-                        current_price = hist['Close'].iloc[-1]
-                        sma_5 = hist['Close'].rolling(window=5).mean().iloc[-1]
-                        sma_10 = hist['Close'].rolling(window=10).mean().iloc[-1]
-                        sma_20 = hist['Close'].rolling(window=20).mean().iloc[-1]
-                        sma_50 = hist['Close'].rolling(window=50).mean().iloc[-1]
-                        sma_150 = hist['Close'].rolling(window=150).mean().iloc[-1]
-                        sma_200 = hist['Close'].rolling(window=200).mean().iloc[-1]
-                        
-                        high_52 = hist['Close'].tail(252).max()
-                        low_52 = hist['Close'].tail(252).min()
-                        
-                        sma_200_prev_month = hist['Close'].rolling(window=200).mean().iloc[-22]
-                        
-                        # 지수 비교
-                        kospi = yf.Ticker("^KS11").history(period="3mo")
-                        if not kospi.empty:
-                            kospi_ret = (kospi['Close'].iloc[-1] / kospi['Close'].iloc[0]) - 1
-                            stock_ret = (hist['Close'].iloc[-1] / hist['Close'].iloc[-60]) - 1
-                            
-                            if "Long" in strategy_type:
-                                relative_strength = stock_ret > (kospi_ret * 3) if kospi_ret > 0 else stock_ret > 0
-                            else: # Short Strategy
-                                # 숏일 땐 지수보다 더 많이 빠져야 약한 놈임 (하락폭이 3배 크거나)
-                                relative_strength = stock_ret < (kospi_ret * 3) if kospi_ret < 0 else stock_ret < 0
-                        else:
-                            relative_strength = False
-                        
-                        st.divider()
-                        st.markdown(f"### 📋 **[{vcp_ticker}]** {strategy_type} 진단 리스트")
-                        st.caption(f"현재가: **{current_price:,.0f}원** (50일선: {sma_50:,.0f}원)")
-                        
-                        c_chk1, c_chk2 = st.columns(2)
-                        
-                        # --- [전략별 체크리스트 분기] ---
-                        if "Long" in strategy_type:
-                            trend_200_up = sma_200 > sma_200_prev_month
-                            with c_chk1:
-                                st.write("**1. 추세 템플릿 (정배열)**")
-                                cond_ma_order = sma_50 > sma_150 > sma_200
-                                st.checkbox("이평선 정배열 (50 > 150 > 200)", value=cond_ma_order, disabled=True)
-                                st.checkbox("200일선 상승 추세", value=trend_200_up, disabled=True)
-                                cond_price_ma = current_price > sma_50
-                                st.checkbox("현재가 > 50일 이평선", value=cond_price_ma, disabled=True)
-                            
-                            with c_chk2:
-                                st.write("**2. 모멘텀 & 위치**")
-                                cond_near_high = current_price >= (high_52 * 0.75)
-                                st.checkbox(f"52주 신고가 근처 (25% 이내)", value=cond_near_high, disabled=True)
-                                cond_above_low = current_price >= (low_52 * 1.25)
-                                st.checkbox(f"52주 신저가 대비 +25% 이상 상승", value=cond_above_low, disabled=True)
-                                st.checkbox("지수보다 3배 강한 상승 (RS)", value=relative_strength, disabled=True)
-                                
-                        else: # Short Strategy
-                            trend_200_down = sma_200 < sma_200_prev_month
-                            with c_chk1:
-                                st.write("**1. 역추세 템플릿 (역배열)**")
-                                # 숏은 역배열이어야 함: 50 < 150 < 200
-                                cond_ma_inverse = sma_50 < sma_150 < sma_200
-                                st.checkbox("이평선 역배열 (50 < 150 < 200)", value=cond_ma_inverse, disabled=True)
-                                st.checkbox("200일선 하락 추세", value=trend_200_down, disabled=True)
-                                cond_price_below_ma = current_price < sma_50
-                                st.checkbox("현재가 < 50일 이평선 (저항)", value=cond_price_below_ma, disabled=True)
-                                
-                            with c_chk2:
-                                st.write("**2. 하락 모멘텀 & 위치**")
-                                # 신저가 근처에 있어야 함 (지하실 파는 중)
-                                cond_near_low = current_price <= (low_52 * 1.25) 
-                                st.checkbox(f"52주 신저가 근처 (25% 이내)", value=cond_near_low, disabled=True)
-                                # 신고가에서는 멀어야 함
-                                cond_below_high = current_price <= (high_52 * 0.75)
-                                st.checkbox(f"52주 신고가 대비 -25% 이상 하락", value=cond_below_high, disabled=True)
-                                st.checkbox("지수보다 약한 하락 (RS Weakness)", value=relative_strength, disabled=True)
-
-                        st.warning("🧐 **사장님의 '눈'으로 직접 확인해야 할 항목**")
-                        if "Long" in strategy_type:
-                            st.write("- 거래량 실린 돌파 (Volume Breakout)?")
-                            st.write("- 손잡이 거래량 감소 (Dry Up)?")
-                        else:
-                            st.write("- 거래량 실린 하락 이탈 (Breakdown)?")
-                            st.write("- 반등 시 거래량 감소 (Weak Rally)?")
-                            st.write("- 헤드앤숄더 / 이중천장 패턴?")
-                        
-                        st.divider()
-                        st.markdown("### 🛑 **청산(Exit) 가이드라인**")
-                        
-                        t_sell1, t_sell2 = st.columns(2)
-                        
-                        if "Long" in strategy_type:
-                            with t_sell1:
-                                st.info("🏃 **매수 포지션 익절/손절**")
-                                st.markdown(f"""
-                                * **1차 방어:** 5일선 이탈 ({sma_5:,.0f})
-                                * **2차 방어:** 20일선 이탈 ({sma_20:,.0f})
-                                * **최종 방어:** 50일선 이탈 ({sma_50:,.0f})
-                                """)
-                        else: # Short Exit
-                            with t_sell1:
-                                st.error("🏃 **공매도 포지션 상환(Cover)**")
-                                st.markdown(f"""
-                                * **단기 청산:** 5일선 돌파 시 ({sma_5:,.0f})
-                                * **추세 청산:** 20일선 돌파 시 ({sma_20:,.0f})
-                                * **손절(Stop):** 전고점 or 50일선 돌파 ({sma_50:,.0f})
-                                """)
-                                
-            except Exception as e:
-                st.error(f"분석 중 오류가 발생했습니다: {e}")
-
-    # === TAB 10: 멘탈 지킴이 (MDD) ===
-    with tab10:
         st.subheader("📉 멘탈 지킴이 (Drawdown Analysis)")
         st.markdown("**\"내 계좌는 지금 물속 얼마나 깊은 곳에 있을까?\"** (전고점 대비 하락폭 분석)")
         
@@ -688,99 +518,8 @@ if not df.empty:
         else:
             st.error("🚑 **[응급 상황]** 깊은 물에 빠졌습니다. 지금은 '수익'보다 '생존'이 목표입니다. 무조건 수비적으로 하세요.")
 
-    # === TAB 11: 셜록 홈즈 (Deep Dive) ===
-    with tab11:
-        st.subheader("🕵️‍♂️ 셜록 홈즈 (Deep Dive Analytics)")
-        st.markdown("데이터에 숨겨진 **사장님의 진짜 실력**과 **약점**을 찾아냅니다.")
-        
-        if len(df) < 5:
-            st.warning("⚠️ 분석할 데이터가 부족합니다. 매매 기록을 더 쌓아주세요!")
-        else:
-            # 1. If-Only 시뮬레이터 (손절 잘했더라면?)
-            st.markdown("### ✂️ **1. '손절만 잘했어도...' 시뮬레이터**")
-            st.caption("과거 모든 거래에서 **손절을 -X%로 칼같이 잘랐다면** 결과가 어땠을지 계산합니다.")
-            
-            cut_loss_limit = st.slider("가정할 손절 한계선 (%)", -20.0, -1.0, -3.0, 0.5)
-            
-            # 시뮬레이션 계산
-            sim_df = df.copy()
-            # ROI가 설정값보다 낮으면(더 큰 손실이면) 설정값으로 강제 변경
-            sim_df['Sim_ROI'] = np.where(sim_df['ROI_Percent'] < cut_loss_limit, cut_loss_limit, sim_df['ROI_Percent'])
-            # 손익금 재계산 (매수금액 * 시뮬레이션 ROI)
-            sim_df['Sim_PL'] = sim_df['Buy_Amount'] * (sim_df['Sim_ROI'] / 100)
-            
-            real_total = df['P_L_Amount'].sum()
-            sim_total = sim_df['Sim_PL'].sum()
-            diff = sim_total - real_total
-            
-            c1, c2, c3 = st.columns(3)
-            c1.metric("실제 누적 손익", f"{real_total:,.0f}원")
-            c2.metric(f"손절 {cut_loss_limit}% 제한 시", f"{sim_total:,.0f}원")
-            c3.metric("차이 (손실 방어 효과)", f"+{diff:,.0f}원", delta="개선 효과" if diff > 0 else "변화 없음")
-            
-            if diff > 0:
-                st.success(f"💡 **인사이트:** 손절 원칙만 지켰어도 **{diff:,.0f}원**을 더 벌었거나 덜 잃었습니다. '손절은 생명'입니다.")
-            
-            st.divider()
-            
-            # 2. 슬럼프 탐지기 (Rolling Win Rate)
-            st.markdown("### 🎢 **2. 슬럼프 탐지기 (최근 폼은?)**")
-            st.caption("최근 20회 거래의 승률 변화 추세입니다. 그래프가 꺾이면 휴식이 필요합니다.")
-            
-            # 승패 여부 (1=승, 0=패)
-            df['Is_Win'] = np.where(df['ROI_Percent'] > 0, 1, 0)
-            # 롤링 윈도우 (최근 20개)
-            df_sorted = df.sort_values('Date')
-            df_sorted['Rolling_WinRate'] = df_sorted['Is_Win'].rolling(window=20, min_periods=5).mean() * 100
-            
-            line_roll = alt.Chart(df_sorted.reset_index()).mark_line(color='#ff9900').encode(
-                x=alt.X('Date', title='거래 일자'),
-                y=alt.Y('Rolling_WinRate', title='추세 승률 (%)'),
-                tooltip=['Date', 'Rolling_WinRate']
-            )
-            
-            # 50% 기준선
-            rule_50 = alt.Chart(pd.DataFrame({'y': [50]})).mark_rule(color='gray', strokeDash=[2,2]).encode(y='y')
-            
-            st.altair_chart(line_roll + rule_50, use_container_width=True)
-            
-            last_roll_wr = df_sorted['Rolling_WinRate'].iloc[-1]
-            if last_roll_wr >= 50:
-                st.info(f"👍 현재 폼은 나쁘지 않습니다. (최근 추세 승률: {last_roll_wr:.1f}%)")
-            else:
-                st.warning(f"📉 **슬럼프 경보!** 최근 추세 승률이 {last_roll_wr:.1f}%로 저조합니다. 매매 횟수를 줄이세요.")
-                
-            st.divider()
-            
-            # 3. 요일별 분석 (Seasonality)
-            st.markdown("### 📅 **3. 요일의 저주 (언제 돈을 잃나?)**")
-            
-            df['DayOfWeek'] = df['Date'].dt.day_name()
-            # 요일 순서 정렬
-            day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-            
-            day_stats = df.groupby('DayOfWeek')['P_L_Amount'].sum().reindex(day_order).dropna().reset_index()
-            
-            bar_day = alt.Chart(day_stats).mark_bar().encode(
-                x=alt.X('DayOfWeek', sort=day_order, title='요일'),
-                y=alt.Y('P_L_Amount', title='누적 손익'),
-                color=alt.condition(
-                    alt.datum.P_L_Amount > 0,
-                    alt.value("green"),
-                    alt.value("red")
-                ),
-                tooltip=['DayOfWeek', 'P_L_Amount']
-            )
-            
-            st.altair_chart(bar_day, use_container_width=True)
-            
-            # 최악의 요일 찾기
-            worst_day = day_stats.sort_values('P_L_Amount').iloc[0]
-            if worst_day['P_L_Amount'] < 0:
-                st.error(f"🚫 **사장님! {worst_day['DayOfWeek']}에는 제발 매매하지 마세요!** 누적 손실이 가장 큽니다 ({worst_day['P_L_Amount']:,.0f}원).")
-
-    # === [NEW] TAB 12: R-배수 분석 ===
-    with tab12:
+    # === TAB 9: R-배수 분석 (구 12번) ===
+    with tab9:
         st.subheader("🎯 R-배수 분석 (The Real Score)")
         st.markdown("**'R'은 나의 위험(Risk) 단위입니다.** 내가 1만큼 위험을 걸었을 때, 몇 배를 벌었나요? 이게 진짜 실력입니다.")
         
@@ -830,6 +569,73 @@ if not df.empty:
             st.warning("🔔 **[분발하세요]** 돈은 벌고 있지만 '가성비'가 떨어집니다. 익절을 조금 더 길게 가져가 보세요.")
         else:
             st.error("🚨 **[위험합니다]** 위험 감수 대비 보상이 마이너스입니다. 손절을 더 짧게, 익절은 더 길게 해야 합니다.")
+
+    # === TAB 10: 매매 캘린더 (구 13번) ===
+    with tab10:
+        st.subheader("📅 매매 캘린더 (Trading Streak Challenge)")
+        st.markdown("**'잔디 심기'**를 아시나요? 매일매일 초록불(익절)로 달력을 채워보세요!")
+        
+        # 일별 합계 데이터
+        daily_sum = df.groupby('Date')['P_L_Amount'].sum().reset_index()
+        
+        # 캘린더 히트맵 데이터 준비
+        daily_sum['Year'] = daily_sum['Date'].dt.year
+        daily_sum['Week'] = daily_sum['Date'].dt.isocalendar().week
+        daily_sum['Day'] = daily_sum['Date'].dt.day_name()
+        # 요일 정렬 (월~일)
+        day_order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        daily_sum['Day_Short'] = daily_sum['Date'].dt.strftime('%a')
+        
+        # 스트릭(연승) 계산
+        streak = 0
+        max_streak = 0
+        # 날짜순 정렬
+        sorted_pl = daily_sum.sort_values('Date')['P_L_Amount'].tolist()
+        
+        current_streak = 0
+        for pl in sorted_pl:
+            if pl > 0:
+                current_streak += 1
+            else:
+                max_streak = max(max_streak, current_streak)
+                current_streak = 0
+        # 마지막 스트릭 반영
+        max_streak = max(max_streak, current_streak)
+        
+        # 현재 연승 중인지 확인 (마지막 거래가 수익이면)
+        is_winning_now = sorted_pl[-1] > 0 if sorted_pl else False
+        current_run = 0
+        if is_winning_now:
+            for pl in reversed(sorted_pl):
+                if pl > 0: current_run += 1
+                else: break
+        
+        # 상단 메트릭
+        c1, c2, c3 = st.columns(3)
+        c1.metric("현재 연속 익절 (Current Streak)", f"{current_run}일🔥")
+        c2.metric("최장 연속 익절 (Best Streak)", f"{max_streak}일🏆")
+        c3.metric("이번 달 매매 일수", f"{len(daily_sum[daily_sum['Date'].dt.month == datetime.today().month])}일")
+        
+        st.divider()
+        
+        # 캘린더 히트맵 (Altair)
+        heatmap = alt.Chart(daily_sum).mark_rect().encode(
+            x=alt.X('Week:O', title='주차 (Week)'),
+            y=alt.Y('Day_Short:N', sort=['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], title='요일'),
+            color=alt.condition(
+                alt.datum.P_L_Amount > 0,
+                alt.value("#2E8B57"), # SeaGreen (Win)
+                alt.value("#CD5C5C")  # IndianRed (Loss)
+            ),
+            tooltip=[
+                alt.Tooltip('Date', title='날짜', format='%Y-%m-%d'),
+                alt.Tooltip('P_L_Amount', title='손익', format=',.0f')
+            ]
+        ).properties(width=700, height=200).configure_view(strokeWidth=0)
+        
+        st.altair_chart(heatmap, use_container_width=True)
+        
+        st.caption("💡 **Tip:** 초록색이 많아질수록 사장님의 계좌도 건강해집니다. 빨간색을 두려워하지 말고, 복기하는 습관을 들이세요!")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
