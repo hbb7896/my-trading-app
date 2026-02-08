@@ -150,11 +150,11 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 11개 (탭 11 추가)
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
+    # 탭 구성: 총 12개 (탭 12 추가)
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
         "⚖️ 빅터 스페란데오", "🚥 매매 신호등", "🛡️ 파산 제로", "🛑 매도 검문소", 
-        "🔍 롱/숏 진단기", "📉 멘탈 지킴이", "🕵️‍♂️ 셜록 홈즈"
+        "🔍 롱/숏 진단기", "📉 멘탈 지킴이", "🕵️‍♂️ 셜록 홈즈", "🎯 R-배수 분석"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -688,7 +688,7 @@ if not df.empty:
         else:
             st.error("🚑 **[응급 상황]** 깊은 물에 빠졌습니다. 지금은 '수익'보다 '생존'이 목표입니다. 무조건 수비적으로 하세요.")
 
-    # === [NEW] TAB 11: 셜록 홈즈 (Deep Dive) ===
+    # === TAB 11: 셜록 홈즈 (Deep Dive) ===
     with tab11:
         st.subheader("🕵️‍♂️ 셜록 홈즈 (Deep Dive Analytics)")
         st.markdown("데이터에 숨겨진 **사장님의 진짜 실력**과 **약점**을 찾아냅니다.")
@@ -778,6 +778,58 @@ if not df.empty:
             worst_day = day_stats.sort_values('P_L_Amount').iloc[0]
             if worst_day['P_L_Amount'] < 0:
                 st.error(f"🚫 **사장님! {worst_day['DayOfWeek']}에는 제발 매매하지 마세요!** 누적 손실이 가장 큽니다 ({worst_day['P_L_Amount']:,.0f}원).")
+
+    # === [NEW] TAB 12: R-배수 분석 ===
+    with tab12:
+        st.subheader("🎯 R-배수 분석 (The Real Score)")
+        st.markdown("**'R'은 나의 위험(Risk) 단위입니다.** 내가 1만큼 위험을 걸었을 때, 몇 배를 벌었나요? 이게 진짜 실력입니다.")
+        
+        # 1R = 평균 손실액 (절대값)
+        if not losses.empty:
+            avg_loss_abs = abs(losses['P_L_Amount'].mean())
+        else:
+            avg_loss_abs = 1 # 분모 0 방지용 (손실 없을 때)
+            
+        # R값 계산
+        df['R_Value'] = df['P_L_Amount'] / avg_loss_abs
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("나의 1R (평균 손실금)", f"{avg_loss_abs:,.0f}원")
+        c2.metric("평균 R-배수 (기대 수익)", f"{df['R_Value'].mean():.2f}R")
+        c3.metric("최고 R-배수 (인생 매매)", f"{df['R_Value'].max():.2f}R")
+        
+        st.divider()
+        
+        # 차트 1: R 분포도 (히스토그램)
+        st.write("📊 **R-배수 분포도 (오른쪽으로 꼬리가 길어야 고수!)**")
+        hist_chart = alt.Chart(df).mark_bar().encode(
+            x=alt.X('R_Value', bin=alt.Bin(step=0.5), title='R-배수 구간'),
+            y=alt.Y('count()', title='횟수'),
+            color=alt.condition(alt.datum.R_Value > 0, alt.value("green"), alt.value("red")),
+            tooltip=['count()']
+        )
+        st.altair_chart(hist_chart, use_container_width=True)
+        
+        # 차트 2: 누적 R 곡선 (SQN)
+        st.write("📈 **누적 R 곡선 (자산 규모 뺀 순수 실력 그래프)**")
+        df_sorted_r = df.sort_values('Date').copy()
+        df_sorted_r['Cumulative_R'] = df_sorted_r['R_Value'].cumsum()
+        df_sorted_r['Trade_Num'] = range(1, len(df_sorted_r) + 1)
+        
+        line_r = alt.Chart(df_sorted_r).mark_line(color='blue').encode(
+            x=alt.X('Trade_Num', title='거래 횟수'),
+            y=alt.Y('Cumulative_R', title='누적 R (Total R)'),
+            tooltip=['Date', 'R_Value', 'Cumulative_R']
+        )
+        st.altair_chart(line_r, use_container_width=True)
+        
+        # 인사이트
+        if df['R_Value'].mean() > 0.5:
+            st.success(f"💎 **[훌륭합니다]** 평균적으로 잃을 때보다 **{df['R_Value'].mean():.1f}배** 더 벌고 계십니다. 계좌가 우상향할 수밖에 없습니다.")
+        elif df['R_Value'].mean() > 0:
+            st.warning("🔔 **[분발하세요]** 돈은 벌고 있지만 '가성비'가 떨어집니다. 익절을 조금 더 길게 가져가 보세요.")
+        else:
+            st.error("🚨 **[위험합니다]** 위험 감수 대비 보상이 마이너스입니다. 손절을 더 짧게, 익절은 더 길게 해야 합니다.")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
