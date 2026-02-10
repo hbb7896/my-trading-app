@@ -150,11 +150,11 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 10개
+    # 탭 구성: 총 10개 (마지막 탭 변경됨)
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
         "⚖️ 빅터 스페란데오", "🚥 매매 신호등", "🛡️ 파산 제로", 
-        "📉 멘탈 지킴이", "🎯 R-배수 분석", "🐆 1600 하이브리드"
+        "📉 멘탈 지킴이", "🎯 R-배수 분석", "🕵️ 김대리의 1:1 분석실"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -588,80 +588,93 @@ if not df.empty:
         else:
             st.info(f"📭 선택하신 **{r_period}**에는 매매 기록이 없습니다.")
 
-    # === [NEW] TAB 10: 1600만 하이브리드 전략 ===
+    # === [NEW] TAB 10: 김대리의 1:1 분석실 (대폭 수정됨) ===
     with tab10:
-        st.subheader("🐆 1600 하이브리드 전략실 (Sniper Buy, Turtle Sell)")
-        st.markdown("**\"미너비니처럼 쏘고, 터틀처럼 먹는다\"** (손절 -4%/-8% 룰 적용)")
+        st.subheader("🕵️ 김대리의 1:1 분석실 (My Trading Coach)")
+        st.markdown("**\"데이터는 사장님의 모든 습관을 알고 있습니다.\"**")
         
-        # 설정값
-        my_seed = st.number_input("💰 나의 시드머니 (원)", value=16000000, step=1000000)
+        # 1. 사장님의 정체성 분석
+        st.markdown("### 1️⃣ 사장님은 어떤 트레이더인가?")
+        
+        user_type = ""
+        user_desc = ""
+        user_icon = ""
+        
+        if win_rate < 40 and risk_reward_ratio > 2.0:
+            user_type = "홈런 타자 (Home Run Hitter)"
+            user_desc = "승률은 낮지만(30%대), 한 번 터지면 크게 먹는(2.5배 이상) **전형적인 추세추종형 고수**입니다."
+            user_icon = "⚾"
+        elif win_rate > 60 and risk_reward_ratio < 1.0:
+            user_type = "단타 스캘퍼 (Scalper)"
+            user_desc = "자주 이기지만, 수익폭이 작고 한 번의 손실에 취약합니다."
+            user_icon = "🔪"
+        else:
+            user_type = "성장 중인 트레이더"
+            user_desc = "아직 뚜렷한 색깔이 나오지 않았습니다. 손익비를 더 키우세요!"
+            user_icon = "🌱"
+            
+        st.info(f"### {user_icon} 당신은 **[{user_type}]** 입니다.\n\n{user_desc}")
         
         st.divider()
+
+        # 2. 팩트 폭격: 손절 시뮬레이션
+        st.markdown("### 2️⃣ 팩트 폭격: \"손절만 -3%로 했더라면?\"")
+        st.caption("과거 모든 손실 거래를 **-3%**에서 잘랐다고 가정하고 다시 계산해 봅니다.")
         
-        # 1. 매매 계획 생성기
-        st.markdown("### 🤖 **자동 매매 계획표 (Trading Plan Generator)**")
-        with st.form("hybrid_plan"):
-            c_input1, c_input2 = st.columns(2)
-            with c_input1:
-                t_name = st.text_input("종목명 (예: 삼성전자)", "삼성전자")
-            with c_input2:
-                t_price = st.number_input("현재가 (원) - VCP 돌파 가격", value=0, step=100)
+        if not losses.empty:
+            actual_loss_sum = losses['P_L_Amount'].sum()
             
-            submitted = st.form_submit_button("📜 전략 생성하기")
+            # 가상 손실 계산: 매수금액 대비 -3%만 잃었다고 가정
+            # (수수료 등은 단순화하여 -3%로 통일)
+            simulated_loss_sum = (losses['Buy_Amount'] * -0.03).sum() * -1 # 음수로 변환
+            # 실제 손실이 -3%보다 작은 경우(예: -1% 손절)는 그대로 유지
             
-            if submitted and t_price > 0:
-                # 계산 로직
-                # 1차 진입: 시드의 10%
-                entry1_amt = my_seed * 0.10
-                entry1_qty = int(entry1_amt / t_price)
-                if entry1_qty < 1: entry1_qty = 1 # 최소 1주
-                
-                # 손절가 계산 (-4%, -8%)
-                stop_loss_1 = int(t_price * 0.96) # -4%
-                stop_loss_2 = int(t_price * 0.92) # -8%
-                
-                # 예상 손실금
-                risk_amt = (entry1_qty * 0.5 * (t_price - stop_loss_1)) + (entry1_qty * 0.5 * (t_price - stop_loss_2))
-                risk_pct = (risk_amt / entry1_amt) * 100
-                
-                # 2차 진입 (불타기): +3% 상승 시, 시드의 15% 추가
-                add_price = int(t_price * 1.03)
-                entry2_amt = my_seed * 0.15
-                entry2_qty = int(entry2_amt / add_price)
-                
-                st.markdown(f"""
-                #### 📝 **[{t_name}] 🐆 하이브리드 작전명령서**
-                
-                **1️⃣ 1차 정밀 타격 (Sniper Entry)**
-                * **진입 근거:** VCP / 컵위드핸들 돌파
-                * **매수 금액:** 약 **{entry1_amt:,.0f}원** (시드 10%)
-                * **주문 수량:** **{entry1_qty:,}주** (@ {t_price:,}원)
-                
-                **🛡️ 방어 태세 (Stop Loss)**
-                * **1차 방어선 (-4%):** **{stop_loss_1:,}원** 이탈 시 → 보유 물량 **50% 매도**
-                * **최종 방어선 (-8%):** **{stop_loss_2:,}원** 이탈 시 → **전량 매도**
-                * **예상 평균 손실:** 약 -{risk_pct:.1f}% (-{risk_amt:,.0f}원)
-                
-                **2️⃣ 2차 확인 사살 (Turtle Add-on)**
-                * **조건:** 주가가 **{add_price:,}원** (+3%) 도달 시
-                * **추가 매수:** 약 **{entry2_amt:,.0f}원** (시드 15%)
-                * **주문 수량:** **{entry2_qty:,}주**
-                """)
-                st.success("✅ **Tip:** VCP 패턴은 '정밀함'이 생명입니다. 매수 호가창이 얇을 때 쏘세요!")
-        
+            # 더 정교한 로직: 실제 손실률이 -3%보다 큰(더 많이 잃은) 거래만 -3%로 보정
+            deep_losses = losses[losses['ROI_Percent'] < -3].copy()
+            shallow_losses = losses[losses['ROI_Percent'] >= -3].copy()
+            
+            simulated_deep_loss = (deep_losses['Buy_Amount'] * -0.03).sum() * -1
+            final_sim_loss = simulated_deep_loss + shallow_losses['P_L_Amount'].sum()
+            
+            saved_money = final_sim_loss - actual_loss_sum # 음수끼리 뺌 (예: -100 - (-300) = 200)
+            
+            col_f1, col_f2 = st.columns(2)
+            col_f1.metric("실제 누적 손실", f"{actual_loss_sum:,.0f}원")
+            col_f2.metric("칼손절(-3%) 했을 때", f"{final_sim_loss:,.0f}원", f"+{saved_money:,.0f}원 세이브")
+            
+            if saved_money > 0:
+                st.success(f"💸 **보이십니까?** 손절 원칙만 지켰어도 계좌에 **{saved_money:,.0f}원**이 더 있었습니다. 이 돈이면 소고기가 몇 인분입니까!")
+            else:
+                st.write("👏 훌륭합니다! 이미 손절을 아주 짧게 잘 하고 계십니다.")
+        else:
+            st.write("데이터가 부족하여 시뮬레이션 할 수 없습니다.")
+
         st.divider()
+
+        # 3. 김대리의 핵심 처방전
+        st.markdown("### 3️⃣ 김대리의 핵심 처방전 (Action Plan)")
         
-        # 2. 매도 가이드
-        st.markdown("### 🐢 **매도 가이드 (Turtle Exit)**")
-        st.info("""
-        **"수익은 줄 때 먹는 게 아니라, 뺏길 때까지 버티는 것이다."**
-        
-        1.  **+20% 수익 시:** 절대 전량 매도 금지. (미너비니와 다른 점)
-        2.  **트레일링 스탑 (Trailing Stop):**
-            * **20일선**이 깨지면 절반 매도.
-            * **50일선**이 깨지면 전량 매도.
-        3.  **목표:** 14R (손실금의 14배) 먹을 때까지 엉덩이 무겁게 버티기.
-        """)
+        with st.expander("💊 처방 1: 자금 관리 (10-15-25 룰)", expanded=True):
+            st.write("""
+            * **초기 진입은 가볍게:** 시드의 **10%** (약 160만 원)
+            * **불타기 (Pyramiding):** 수익 확인 후 **+15%** 추가 투입 (약 240만 원)
+            * **목표:** '물타기' 절대 금지! 오직 '불타기'로만 비중을 늘리세요.
+            """)
+            
+        with st.expander("💊 처방 2: 손절 원칙 (3/5 룰)", expanded=True):
+            st.write("""
+            * **-3% 도달 시:** 보유 물량 **50%** 시장가 매도 (일단 도망)
+            * **-5% 도달 시:** 나머지 **전량** 매도 (뒤도 돌아보지 마라)
+            * **평균 손실:** -4%로 방어 가능 (기존 -6% 대비 비용 30% 절감)
+            """)
+            
+        with st.expander("💊 처방 3: 진입 필터 (3초 체크)", expanded=True):
+            st.write("""
+            매수 버튼 누르기 전 딱 3 가지만 체크하세요.
+            1.  **거래량이 씨가 말랐는가?** (최근 5일 중 최저 거래량 근처?)
+            2.  **주도 테마인가?** (AI, 반도체 등 쎈 놈들 친구인가?)
+            3.  **VCP 패턴인가?** (변동성이 줄어들며 우상향?)
+            """)
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
