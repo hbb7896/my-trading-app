@@ -34,17 +34,6 @@ def get_krx_list():
     except Exception as e:
         return pd.DataFrame()
 
-# --- PF 가이드 ---
-def show_pf_guide():
-    with st.expander("ℹ️ 마크 미너비니의 PF(프로핏 팩터) 점수표 보기", expanded=False):
-        st.markdown("""
-        | PF 범위 | 상태 | 평가 |
-        | :--- | :--- | :--- |
-        | **1.0 이하** | 🚨 위험 | 손실이 더 큰 상태 |
-        | **1.5 ~ 2.0** | 👍 훌륭함 | 안정적 수익 구간 |
-        | **3.0 이상** | 💎 전설 | 초고수 (Legendary) |
-        """)
-
 # [오류 방지] 컬럼 목록 정의
 REQUIRED_COLUMNS = [
     'Date', 'Ticker', 'Buy_Amount', 'Sell_Amount', 'P_L_Amount', 
@@ -150,11 +139,10 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 불필요한 탭 삭제, [자금 관리 비서] 추가
-    # 총 8개 탭
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    # 탭 구성: 총 9개 (마지막 탭 추가됨)
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "⚖️ 자금 관리 비서", "🕵️ 김대리의 1:1 분석실"
+        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "⚖️ 자금 관리 비서", "🕵️ 김대리의 1:1 분석실", "🧭 로드맵 점검"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -217,7 +205,6 @@ if not df.empty:
                 "손익비": float(m_wl_ratio), "PF": float(pf), "매수총액": float(m_buy_vol)
             })
         st.dataframe(pd.DataFrame(monthly_stats).sort_values("기간", ascending=False).style.format({"총 손익": "{:,.0f}원", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}", "매수총액": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='RdYlGn'), use_container_width=True)
-        show_pf_guide()
 
     # === TAB 3: 연도별 ===
     with tab3:
@@ -238,7 +225,6 @@ if not df.empty:
                 "손익비": float(y_wl_ratio), "PF": float(pf), "매수총액": float(y_buy_vol)
             })
         st.dataframe(pd.DataFrame(yearly_stats).sort_values("연도", ascending=False).style.format({"총 손익": "{:,.0f}원", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}", "매수총액": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
-        show_pf_guide()
 
     # === TAB 4: 원본 ===
     with tab4: st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
@@ -342,97 +328,95 @@ if not df.empty:
         else:
             st.info(f"📭 선택하신 **{r_period}**에는 매매 기록이 없습니다.")
 
-    # === [NEW] TAB 7: 자금 관리 비서 (Position Sizing) ===
+    # === TAB 7: 자금 관리 비서 (Risk-Free Pyramiding) ===
     with tab7:
         st.subheader("⚖️ 자금 관리 비서 (Position Sizing AI)")
-        st.markdown("**\"최근 폼(Form)이 좋으면 크게, 나쁘면 작게!\"** (시장 순응형 자금 관리)")
+        st.markdown("**\"최근 폼(Form)이 좋으면 사납게! 나쁘면 웅크리게!\"**")
         
         my_total_seed = st.number_input("💰 현재 총 시드머니 (원)", value=16000000, step=1000000)
         st.divider()
 
-        # 최근 매매 분석 (최근 5건 기준)
+        # 최근 매매 분석
         recent_n = 5
         df_sorted = df.sort_values('Date', ascending=False)
         df_recent = df_sorted.head(recent_n)
         
+        # 1. 컨디션 진단 (Slump or Fire?)
         if len(df_recent) < 3:
-            st.warning("⚠️ 데이터가 부족합니다. 최소 3건 이상의 매매 기록이 쌓이면 비서가 작동합니다.")
+            st.warning("⚠️ 데이터가 부족합니다. 최소 3건 이상의 매매 기록이 필요합니다.")
         else:
-            # 상태 진단 로직
             r_wins = df_recent[df_recent['ROI_Percent'] > 0]
             r_win_rate = len(r_wins) / len(df_recent)
             r_net_profit = df_recent['P_L_Amount'].sum()
             
-            # 컨디션 점수 (Score) 산출
-            condition_score = 0
             condition_msg = ""
-            rec_initial_pct = 0
-            rec_max_pct = 0
+            bg_color = ""
             
-            # 1. 최악 (연패 중이거나 손실 큼) -> 방어 모드
             if r_win_rate <= 0.2 or r_net_profit < 0:
-                condition_score = 1
                 condition_msg = "🥶 **[SLUMP]** 컨디션 난조! 지금은 몸을 사려야 합니다."
-                rec_initial_pct = 5  # 발가락만 담그기
-                rec_max_pct = 10     # 물타기/불타기 금지
-                bg_color = "#ffe6e6" # 연한 빨강
-                
-            # 2. 보통 (반반) -> 기본 모드
+                bg_color = "#ffe6e6" 
             elif r_win_rate <= 0.5:
-                condition_score = 2
                 condition_msg = "😐 **[NORMAL]** 평범한 흐름입니다. 원칙대로 진행하세요."
-                rec_initial_pct = 10 # 정찰병
-                rec_max_pct = 20     # 적당히
-                bg_color = "#fffxe6" # 연한 노랑 (실제 코드에선 hex오류 주의, ffffe0 사용)
                 bg_color = "#ffffcc"
-
-            # 3. 최상 (연승 중이거나 대박) -> 공격 모드
             else:
-                condition_score = 3
-                condition_msg = "🔥 **[ON FIRE]** 폼 미쳤습니다! 물 들어올 때 노 저으세요!"
-                rec_initial_pct = 15 # 자신 있게 진입
-                rec_max_pct = 25     # 풀배팅 허용
-                bg_color = "#e6ffe6" # 연한 초록
+                condition_msg = "🔥 **[ON FIRE]** 폼 미쳤습니다! 사납게 비중을 태우세요!"
+                bg_color = "#e6ffe6"
 
-            # UI 출력
             st.markdown(f"""
-            <div style="background-color: {bg_color}; padding: 20px; border-radius: 15px; border: 1px solid #ddd;">
+            <div style="background-color: {bg_color}; padding: 15px; border-radius: 10px; border: 1px solid #ddd; margin-bottom: 20px;">
                 <h3 style="margin:0;">{condition_msg}</h3>
-                <p>최근 {len(df_recent)}전 {len(r_wins)}승 (승률 {r_win_rate*100:.0f}%) | 최근 손익: {r_net_profit:,.0f}원</p>
             </div>
             """, unsafe_allow_html=True)
-            
-            st.write("")
-            
-            # 추천 비중 계산기
-            c1, c2 = st.columns(2)
-            
-            initial_amt = my_total_seed * (rec_initial_pct / 100)
-            max_amt = my_total_seed * (rec_max_pct / 100)
-            
-            with c1:
-                st.info(f"""
-                **🚀 1차 진입 추천 (Initial Entry)**
-                
-                # **{rec_initial_pct}%** ### (약 {initial_amt:,.0f}원)
-                
-                *지금 폼에 딱 맞는 진입 비중입니다.*
-                """)
-                
-            with c2:
-                st.success(f"""
-                **🔥 최대 투입 한도 (Max Allocation)**
-                
-                # **{rec_max_pct}%** ### (약 {max_amt:,.0f}원)
-                
-                *불타기 포함, 이 종목에 태울 수 있는 맥시멈입니다.*
-                """)
-            
-            st.caption("※ 최대 투입 한도는 사장님이 정하신 **절대 원칙(MAX 25%)** 안에서 움직입니다.")
 
-            # 최근 매매 리스트 보여주기
-            with st.expander("🔎 판단 근거: 최근 매매 기록 보기"):
-                st.dataframe(df_recent[['Date', 'Ticker', 'ROI_Percent', 'P_L_Amount']])
+        # 2. Risk-Free Pyramiding Calculator
+        st.subheader("🦁 [사나운 불타기] Risk-Free Pyramiding 가이드")
+        st.markdown("""
+        > **"수익이 담보되면 손절을 본전으로 올리고, 공짜로 비중을 태우세요."**
+        > 사장님의 무기인 **14R 홈런**의 파괴력을 극대화하는 **[10-15-25 룰]** 계산기입니다.
+        """)
+
+        with st.container(border=True):
+            c_p1, c_p2 = st.columns([1, 2])
+            with c_p1:
+                target_price = st.number_input("🎯 현재 주가 (진입가)", value=10000, step=100)
+                st.caption("※ 매수하려는 종목의 현재 가격을 입력하세요.")
+            
+            with c_p2:
+                # 계산 로직
+                # 1. Entry (10%)
+                entry_amt = my_total_seed * 0.10
+                entry_qty = int(entry_amt / target_price) if target_price > 0 else 0
+                stop_loss_price = int(target_price * 0.97) # -3% Stop
+                
+                # 2. Scale-Up (15%) -> Total 25%
+                trigger_price = int(target_price * 1.03) # +3% Rise
+                add_amt = my_total_seed * 0.15
+                add_qty = int(add_amt / trigger_price) if trigger_price > 0 else 0
+                
+                # New Stop Loss (Risk Free) -> Avg Cost
+                total_qty = entry_qty + add_qty
+                if total_qty > 0:
+                    total_amt = (entry_qty * target_price) + (add_qty * trigger_price)
+                    avg_cost = int(total_amt / total_qty)
+                else:
+                    avg_cost = 0
+                
+                new_stop_loss = int(avg_cost) # 본전 손절 (Risk Free)
+
+                st.markdown(f"""
+                #### **📜 [10-15-25] 실행 시나리오**
+                
+                **Step 1: 🕵️ 정찰병 투입 (10% 비중)**
+                - **매수:** {entry_qty:,}주 (약 {entry_amt:,.0f}원)
+                - **손절:** **{stop_loss_price:,}원 (-3%)** 칼같이 지킴!
+                
+                ---
+                
+                **Step 2: 🔥 불타기 & Risk-Free 선언 (주가가 {trigger_price:,}원 도달 시)**
+                - **추가 매수:** {add_qty:,}주 (약 {add_amt:,.0f}원) → **총 비중 25% 완성**
+                - **🛑 손절 이동:** **{new_stop_loss:,}원 (평단가)**
+                - **효과:** 이제 주가가 떨어져도 **손실은 0원**입니다. 오직 상방만 열려있습니다! 🚀
+                """)
 
     # === TAB 8: 김대리의 1:1 분석실 ===
     with tab8:
@@ -515,6 +499,104 @@ if not df.empty:
             2.  **주도 테마인가?** (Leader Sector)
             3.  **VCP 패턴인가?** (Volatility Contraction)
             """)
+
+    # === [NEW] TAB 9: 로드맵 점검 (Roadmap Check) ===
+    with tab9:
+        st.subheader("🧭 로드맵 이행 점검 (Roadmap Check)")
+        st.markdown("**\"김 대리가 내준 3가지 숙제, 잘 하고 계십니까?\"**")
+        st.caption("최근 10건의 매매(New)와 그 이전 매매(Old)를 비교 분석합니다.")
+
+        # 데이터 분리 (최근 10건 vs 과거)
+        df_sorted = df.sort_values('Date', ascending=False)
+        
+        if len(df_sorted) < 5:
+            st.warning("⚠️ 분석할 데이터가 부족합니다. 최소 5건 이상 매매 후 확인해주세요.")
+        else:
+            recent_n = 10
+            df_recent = df_sorted.head(recent_n) # 최근 (New)
+            df_old = df_sorted.iloc[recent_n:]   # 과거 (Old)
+            
+            if df_old.empty: df_old = df_recent # 데이터 적을 땐 비교군을 자신으로
+            
+            # --- 숙제 1: 손절은 비용이다. 깎아라 (-4% 목표) ---
+            st.markdown("### 1️⃣ 숙제 1: 손절 다이어트 (목표: -4% 이내)")
+            
+            recent_losses = df_recent[df_recent['ROI_Percent'] < 0]
+            old_losses = df_old[df_old['ROI_Percent'] < 0]
+            
+            r_avg_loss = recent_losses['ROI_Percent'].mean() if not recent_losses.empty else 0.0
+            o_avg_loss = old_losses['ROI_Percent'].mean() if not old_losses.empty else 0.0
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("과거 평균 손실", f"{o_avg_loss:.2f}%")
+            col2.metric("최근 평균 손실 (New)", f"{r_avg_loss:.2f}%", 
+                        delta=f"{r_avg_loss - o_avg_loss:.2f}%p" if r_avg_loss > o_avg_loss else None)
+            
+            with col3:
+                if r_avg_loss >= -4.5: # -3% ~ -4.5% 인정
+                    st.success("✅ **합격!** 아주 훌륭합니다.")
+                elif r_avg_loss > -6.0:
+                    st.warning("⚠️ **노력 요함** 조금만 더 줄이세요.")
+                else:
+                    st.error("❌ **불합격** 아직도 손절이 큽니다.")
+
+            # --- 숙제 2: 타석에 덜 들어서라 (선구안 개선) ---
+            st.divider()
+            st.markdown("### 2️⃣ 숙제 2: 선구안 개선 (A급 패턴만)")
+            st.caption("매매 횟수를 줄이고 승률이나 평균 수익이 개선되었는지 봅니다.")
+            
+            r_win_rate = (len(df_recent[df_recent['ROI_Percent'] > 0]) / len(df_recent)) * 100
+            o_win_rate = (len(df_old[df_old['ROI_Percent'] > 0]) / len(df_old)) * 100
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("과거 승률", f"{o_win_rate:.1f}%")
+            c2.metric("최근 승률 (New)", f"{r_win_rate:.1f}%", f"{r_win_rate - o_win_rate:.1f}%p")
+            
+            with c3:
+                if r_win_rate >= 40:
+                    st.success("✅ **나이스!** 기다림의 미학을 아시는군요.")
+                elif r_win_rate >= o_win_rate:
+                    st.info("🆗 **유지 중** 나쁘지 않습니다.")
+                else:
+                    st.error("❌ **뇌동매매 주의** 아무 공이나 휘두르고 계십니다.")
+
+            # --- 숙제 3: 잘될 때 사납게 굴어라 (불타기) ---
+            st.divider()
+            st.markdown("### 3️⃣ 숙제 3: 홈런 본능 (불타기 & 홀딩)")
+            st.caption("이길 때 얼마나 시원하게 먹는지(최고 수익률) 확인합니다.")
+            
+            recent_wins = df_recent[df_recent['ROI_Percent'] > 0]
+            if not recent_wins.empty:
+                r_max_win = recent_wins['ROI_Percent'].max()
+                r_avg_win = recent_wins['ROI_Percent'].mean()
+            else:
+                r_max_win = 0
+                r_avg_win = 0
+                
+            k1, k2 = st.columns(2)
+            k1.metric("최근 최고 수익률 (홈런)", f"+{r_max_win:.2f}%")
+            k2.metric("최근 평균 익절폭", f"+{r_avg_win:.2f}%")
+            
+            if r_max_win > 15:
+                st.success("🔥 **[Perfect]** 역시 홈런 타자! 추세를 제대로 탔습니다.")
+            elif r_max_win > 8:
+                st.info("👍 **[Good]** 적당한 2루타입니다. 조금만 더 욕심내보세요.")
+            else:
+                st.warning("먹을 때 너무 짧게 먹습니다. (불타기 부족)")
+
+            # --- 종합 평가 ---
+            st.divider()
+            score = 0
+            if r_avg_loss >= -4.5: score += 1
+            if r_win_rate >= 40 or r_win_rate > o_win_rate: score += 1
+            if r_max_win > 10: score += 1
+            
+            final_msg = ""
+            if score == 3: final_msg = "🏆 **[트레이딩 마스터]** 김 대리의 하산 허락이 임박했습니다!"
+            elif score == 2: final_msg = "🏃 **[성장 중]** 아주 잘하고 계십니다. 하나만 더 고칩시다."
+            else: final_msg = "🐢 **[분발하세요]** 아직 습관이 안 고쳐졌습니다. 원칙을 다시 읽으세요."
+            
+            st.subheader(f"종합 판정: {final_msg}")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
