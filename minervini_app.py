@@ -139,7 +139,7 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 9개 (마지막 탭 추가됨)
+    # 탭 구성: 총 9개
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
         "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "⚖️ 자금 관리 비서", "🕵️ 김대리의 1:1 분석실", "🧭 로드맵 점검"
@@ -328,95 +328,89 @@ if not df.empty:
         else:
             st.info(f"📭 선택하신 **{r_period}**에는 매매 기록이 없습니다.")
 
-    # === TAB 7: 자금 관리 비서 (Risk-Free Pyramiding) ===
+    # === [UPDATED] TAB 7: 자금 관리 비서 (Smart Position Sizing) ===
     with tab7:
-        st.subheader("⚖️ 자금 관리 비서 (Position Sizing AI)")
-        st.markdown("**\"최근 폼(Form)이 좋으면 사납게! 나쁘면 웅크리게!\"**")
+        st.subheader("⚖️ 스마트 자금 관리 (Risk-Based Sizing)")
+        st.markdown("**\"얼마나 벌까?\"보다 \"얼마나 잃을까?\"를 먼저 계산합니다.**")
         
-        my_total_seed = st.number_input("💰 현재 총 시드머니 (원)", value=16000000, step=1000000)
-        st.divider()
-
-        # 최근 매매 분석
-        recent_n = 5
-        df_sorted = df.sort_values('Date', ascending=False)
-        df_recent = df_sorted.head(recent_n)
-        
-        # 1. 컨디션 진단 (Slump or Fire?)
-        if len(df_recent) < 3:
-            st.warning("⚠️ 데이터가 부족합니다. 최소 3건 이상의 매매 기록이 필요합니다.")
-        else:
-            r_wins = df_recent[df_recent['ROI_Percent'] > 0]
-            r_win_rate = len(r_wins) / len(df_recent)
-            r_net_profit = df_recent['P_L_Amount'].sum()
-            
-            condition_msg = ""
-            bg_color = ""
-            
-            if r_win_rate <= 0.2 or r_net_profit < 0:
-                condition_msg = "🥶 **[SLUMP]** 컨디션 난조! 지금은 몸을 사려야 합니다."
-                bg_color = "#ffe6e6" 
-            elif r_win_rate <= 0.5:
-                condition_msg = "😐 **[NORMAL]** 평범한 흐름입니다. 원칙대로 진행하세요."
-                bg_color = "#ffffcc"
-            else:
-                condition_msg = "🔥 **[ON FIRE]** 폼 미쳤습니다! 사납게 비중을 태우세요!"
-                bg_color = "#e6ffe6"
-
-            st.markdown(f"""
-            <div style="background-color: {bg_color}; padding: 15px; border-radius: 10px; border: 1px solid #ddd; margin-bottom: 20px;">
-                <h3 style="margin:0;">{condition_msg}</h3>
-            </div>
-            """, unsafe_allow_html=True)
-
-        # 2. Risk-Free Pyramiding Calculator
-        st.subheader("🦁 [사나운 불타기] Risk-Free Pyramiding 가이드")
-        st.markdown("""
-        > **"수익이 담보되면 손절을 본전으로 올리고, 공짜로 비중을 태우세요."**
-        > 사장님의 무기인 **14R 홈런**의 파괴력을 극대화하는 **[10-15-25 룰]** 계산기입니다.
-        """)
-
+        # 1. 기초 데이터 입력
         with st.container(border=True):
-            c_p1, c_p2 = st.columns([1, 2])
-            with c_p1:
-                target_price = st.number_input("🎯 현재 주가 (진입가)", value=10000, step=100)
-                st.caption("※ 매수하려는 종목의 현재 가격을 입력하세요.")
+            c_base1, c_base2, c_base3 = st.columns(3)
+            with c_base1:
+                my_total_seed = st.number_input("💰 총 시드머니 (원)", value=16000000, step=1000000)
+            with c_base2:
+                # 쿼터 켈리 기준 약 1.5% 권장
+                risk_per_trade = st.number_input("🛡️ 트레이드당 허용 손실 (%)", value=1.5, step=0.1, format="%.1f")
+                st.caption(f"※ 1회 매매 실패 시 시드의 {risk_per_trade}%를 잃습니다.")
+            with c_base3:
+                stop_loss_pct = st.number_input("✂️ 손절폭 설정 (%)", value=3.0, step=0.5, format="%.1f")
+        
+        # 2. 종목 정보 입력
+        st.divider()
+        c_p1, c_p2 = st.columns([1, 2])
+        
+        with c_p1:
+            target_name = st.text_input("종목명", "삼성전자")
+            entry_price = st.number_input("🎯 진입 예정가 (원)", value=70000, step=100)
+        
+        with c_p2:
+            # --- [핵심 계산 로직] ---
+            # 1. 허용 가능한 총 손실금액 (Risk Amount)
+            max_risk_krw = my_total_seed * (risk_per_trade / 100)
             
-            with c_p2:
-                # 계산 로직
-                # 1. Entry (10%)
-                entry_amt = my_total_seed * 0.10
-                entry_qty = int(entry_amt / target_price) if target_price > 0 else 0
-                stop_loss_price = int(target_price * 0.97) # -3% Stop
-                
-                # 2. Scale-Up (15%) -> Total 25%
-                trigger_price = int(target_price * 1.03) # +3% Rise
-                add_amt = my_total_seed * 0.15
-                add_qty = int(add_amt / trigger_price) if trigger_price > 0 else 0
-                
-                # New Stop Loss (Risk Free) -> Avg Cost
-                total_qty = entry_qty + add_qty
-                if total_qty > 0:
-                    total_amt = (entry_qty * target_price) + (add_qty * trigger_price)
-                    avg_cost = int(total_amt / total_qty)
-                else:
-                    avg_cost = 0
-                
-                new_stop_loss = int(avg_cost) # 본전 손절 (Risk Free)
+            # 2. 손절폭에 따른 최대 매수 가능 금액 (Position Size based on Risk)
+            # 식: 총매수금액 * 손절% = 허용손실금액
+            # 따라서: 총매수금액 = 허용손실금액 / 손절%
+            calc_max_position = max_risk_krw / (stop_loss_pct / 100)
+            
+            # 3. 사장님 절대 원칙 (Max 25% Rule) 적용
+            hard_cap_position = my_total_seed * 0.25
+            
+            # 4. 최종 허용 포지션 (둘 중 작은 것 선택)
+            final_position_limit = min(calc_max_position, hard_cap_position)
+            final_qty = int(final_position_limit / entry_price) if entry_price > 0 else 0
+            
+            # 5. 단계별 진입 계획 (3:4:3 비율 추천)
+            step1_qty = int(final_qty * 0.3)  # 30% 정찰
+            step2_qty = int(final_qty * 0.4)  # 40% 빌드업
+            step3_qty = final_qty - step1_qty - step2_qty # 30% 불타기
+            
+            # 출력
+            st.markdown(f"### 📊 **[{target_name}] 정밀 매수 가이드**")
+            
+            # 계산 근거 보여주기
+            st.info(f"""
+            **🧮 김대리의 계산기**
+            * 이번 매매로 잃어도 되는 돈: **-{max_risk_krw:,.0f}원** ({risk_per_trade}%)
+            * 설정한 손절폭: **-{stop_loss_pct}%**
+            * 리스크 역산 적정 비중: **{calc_max_position:,.0f}원**
+            * **📉 최종 승인 금액:** **{final_position_limit:,.0f}원** *(절대 원칙 25%와 리스크 한도 중 작은 값 적용)*
+            """)
 
-                st.markdown(f"""
-                #### **📜 [10-15-25] 실행 시나리오**
-                
-                **Step 1: 🕵️ 정찰병 투입 (10% 비중)**
-                - **매수:** {entry_qty:,}주 (약 {entry_amt:,.0f}원)
-                - **손절:** **{stop_loss_price:,}원 (-3%)** 칼같이 지킴!
-                
-                ---
-                
-                **Step 2: 🔥 불타기 & Risk-Free 선언 (주가가 {trigger_price:,}원 도달 시)**
-                - **추가 매수:** {add_qty:,}주 (약 {add_amt:,.0f}원) → **총 비중 25% 완성**
-                - **🛑 손절 이동:** **{new_stop_loss:,}원 (평단가)**
-                - **효과:** 이제 주가가 떨어져도 **손실은 0원**입니다. 오직 상방만 열려있습니다! 🚀
-                """)
+        # 3. 상세 실행 계획표
+        st.subheader("📝 단계별 실행 계획표 (3-4-3 전술)")
+        
+        plan_data = {
+            "단계": ["1단계: 정찰병 (30%)", "2단계: 빌드업 (40%)", "3단계: 불타기 (30%)", "🟢 최종 합계"],
+            "매수 조건": ["지금 당장", "수익률 +2% 도달 시", "수익률 +4% 도달 시", "-"],
+            "매수 수량": [f"{step1_qty:,} 주", f"{step2_qty:,} 주", f"{step3_qty:,} 주", f"**{final_qty:,} 주**"],
+            "투입 금액": [
+                f"{step1_qty * entry_price:,.0f} 원", 
+                f"{step2_qty * entry_price * 1.02:,.0f} 원", 
+                f"{step3_qty * entry_price * 1.04:,.0f} 원", 
+                f"**{final_position_limit:,.0f} 원**"
+            ],
+            "손절 기준": [f"-{stop_loss_pct}%", "평단가(본전)", "직전 매수가", "**수익 보전**"]
+        }
+        
+        st.table(pd.DataFrame(plan_data).set_index("단계"))
+        
+        st.warning(f"""
+        **📢 김대리의 조언:**
+        1. **1단계** 매수 후 손절가({entry_price * (1 - stop_loss_pct/100):,.0f}원)를 건드리면 즉시 도망치세요. 손실은 {max_risk_krw * 0.3:,.0f}원에 불과합니다.
+        2. **2단계** 진입은 반드시 1단계 물량이 **빨간불(수익)**일 때만 하세요. 물타기는 절대 금지입니다.
+        3. 이 계획대로면 최악의 경우에도 사장님 시드는 **안전**합니다.
+        """)
 
     # === TAB 8: 김대리의 1:1 분석실 ===
     with tab8:
