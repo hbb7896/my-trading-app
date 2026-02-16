@@ -142,7 +142,7 @@ if not df.empty:
     # 탭 구성: 총 8개
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "⚖️ 자금 관리 비서", "🧭 로드맵 점검"
+        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "⚖️ 심플 자금 관리", "🧭 로드맵 점검"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -337,101 +337,62 @@ if not df.empty:
         else:
             st.info(f"📭 선택하신 **{r_period}**에는 매매 기록이 없습니다.")
 
-    # === [UPDATED] TAB 7: 자금 관리 비서 (100-70-30 Strategy) ===
+    # === [UPDATED] TAB 7: 심플 자금 관리 (Simple Money Manager) ===
     with tab7:
-        st.subheader("⚖️ 스마트 자금 관리 (100-70-30 Pyramiding)")
-        st.markdown("**\"총알 200만 원 장전! 100-70-30 전술로 확실하게 조집니다.\"**")
+        st.subheader("⚖️ 심플 자금 관리 (50-35-15 Rule)")
+        st.markdown("**\"복잡한 건 질색! 50% - 35% - 15% 비율만 딱 알려줍니다.\"**")
         
-        # 1. 입력창
+        # 1. 심플 입력창
         with st.container(border=True):
-            col_in1, col_in2 = st.columns([1, 2])
+            col_in1, col_in2 = st.columns(2)
             with col_in1:
-                target_stock = st.text_input("종목명", "삼성전자")
+                total_money = st.number_input("💰 이번 종목 총 투입 예정금 (원)", value=2000000, step=100000)
             with col_in2:
-                entry_price_input = st.number_input("🎯 1차 진입 단가 (현재가)", value=70000, step=100)
+                current_price = st.number_input("🎯 현재 주가 (1차 진입가)", value=70000, step=100)
 
-        # 2. 계산 로직
-        # 전제: 총 투입 200만 (100만 / 70만 / 30만)
-        total_cap = 2000000
+        # 2. 계산 로직 (50% - 35% - 15%)
+        amt1 = total_money * 0.50
+        amt2 = total_money * 0.35
+        amt3 = total_money * 0.15
         
-        # Step 1: 100만원
-        amt1 = 1000000
-        qty1 = int(amt1 / entry_price_input) if entry_price_input > 0 else 0
+        qty1 = int(amt1 / current_price) if current_price > 0 else 0
         
-        # Step 2: 70만원 (수익률 +2% 시점)
-        price2 = int(entry_price_input * 1.02)
-        amt2 = 700000
+        # 2차/3차는 상승 가격 가정 (2차: +2%, 3차: +5%)
+        price2 = int(current_price * 1.02)
         qty2 = int(amt2 / price2) if price2 > 0 else 0
         
-        # Step 3: 30만원 (적정 시점 = +5% 가정)
-        price3 = int(entry_price_input * 1.05)
-        amt3 = 300000
+        price3 = int(current_price * 1.05)
         qty3 = int(amt3 / price3) if price3 > 0 else 0
-        
-        # Total
-        total_qty = qty1 + qty2 + qty3
-        total_invest = (qty1 * entry_price_input) + (qty2 * price2) + (qty3 * price3)
-        avg_price = int(total_invest / total_qty) if total_qty > 0 else 0
-        
-        # Stop Loss
-        stop_loss_3 = int(entry_price_input * 0.97) # -3%
-        stop_loss_5 = int(entry_price_input * 0.95) # -5%
 
-        # 3. 결과 출력
-        st.divider()
-        st.markdown(f"### 🚀 **[{target_stock}] 실전 진입 계획표**")
-        
+        # 3. 결과 출력 (카드 형태)
+        st.write("")
         c1, c2, c3 = st.columns(3)
         
         with c1:
             st.success(f"""
-            **1️⃣ 1차 진입 (선발대)**
-            
-            # **{qty1:,} 주**
-            
-            * 금액: {qty1 * entry_price_input:,.0f}원 (50%)
-            * 단가: **{entry_price_input:,.0f}원** (지금)
+            **1️⃣ 1차 진입 (50%)**
+            # {amt1:,.0f} 원
+            * **{qty1:,} 주** 매수
+            * (현재가 즉시 진입)
             """)
             
         with c2:
             st.warning(f"""
-            **2️⃣ 2차 진입 (불타기)**
-            
-            # **{qty2:,} 주**
-            
-            * 금액: {qty2 * price2:,.0f}원 (35%)
-            * 조건: **{price2:,.0f}원** 도달 시 (+2%)
+            **2️⃣ 2차 불타기 (35%)**
+            # {amt2:,.0f} 원
+            * **{qty2:,} 주** 매수
+            * (수익률 +2% 시점)
             """)
             
         with c3:
             st.error(f"""
-            **3️⃣ 3차 진입 (막타)**
-            
-            # **{qty3:,} 주**
-            
-            * 금액: {qty3 * price3:,.0f}원 (15%)
-            * 조건: **{price3:,.0f}원** 도달 시 (+5%)
+            **3️⃣ 3차 막타 (15%)**
+            # {amt3:,.0f} 원
+            * **{qty3:,} 주** 매수
+            * (수익률 +5% 시점)
             """)
-            
-        st.divider()
-        
-        # 4. 손절 가이드 & 종합
-        col_risk1, col_risk2 = st.columns(2)
-        
-        with col_risk1:
-            st.markdown("#### 🛡️ **손절 방어선 (Stop Loss)**")
-            st.info(f"""
-            * **1차 방어선 (-3%):** **{stop_loss_3:,.0f}원** 이탈 시 → **보유 물량 50% 매도**
-            * **2차 방어선 (-5%):** **{stop_loss_5:,.0f}원** 이탈 시 → **전량 매도 (뒤도 보지 마라)**
-            """)
-            
-        with col_risk2:
-            st.markdown("#### 💰 **최종 포트폴리오 예상**")
-            st.write(f"""
-            * **총 매수 수량:** {total_qty:,} 주
-            * **총 투입 금액:** {total_invest:,.0f} 원
-            * **예상 평단가:** {avg_price:,.0f} 원
-            """)
+
+        st.caption("※ 주식 수는 예상 진입가(+2%, +5%) 기준으로 계산되었습니다.")
 
     # === TAB 8: 로드맵 점검 (Roadmap Check) ===
     with tab8:
