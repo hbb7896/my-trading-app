@@ -186,25 +186,54 @@ if not df.empty:
         st.subheader("📊 월별 손익 흐름")
         st.bar_chart(df.groupby('YearMonth')['P_L_Amount'].sum())
 
-    # === TAB 2: 월별 ===
+    # === [UPDATED] TAB 2: 월별 (평균수익/손실 추가) ===
     with tab2:
         st.subheader("📅 월별 상세 성적표")
         monthly_stats = []
         for ym, group in df.groupby('YearMonth'):
-            g_wins = group[group['ROI_Percent'] > 0]; g_losses = group[group['ROI_Percent'] <= 0]
+            g_wins = group[group['ROI_Percent'] > 0]
+            g_losses = group[group['ROI_Percent'] <= 0]
+            
+            # 금액 계산
             gross_profit = group[group['P_L_Amount'] > 0]['P_L_Amount'].sum()
             gross_loss = abs(group[group['P_L_Amount'] <= 0]['P_L_Amount'].sum())
+            
+            # 평균 금액 계산
+            m_avg_profit_amt = group[group['P_L_Amount'] > 0]['P_L_Amount'].mean() if not group[group['P_L_Amount'] > 0].empty else 0
+            m_avg_loss_amt = group[group['P_L_Amount'] <= 0]['P_L_Amount'].mean() if not group[group['P_L_Amount'] <= 0].empty else 0
+            
             pf = gross_profit / gross_loss if gross_loss > 0 else 0
-            m_avg_gain = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
-            m_avg_loss = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
-            m_wl_ratio = m_avg_gain / m_avg_loss if m_avg_loss > 0 else 0
+            m_avg_gain_pct = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
+            m_avg_loss_pct = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
+            m_wl_ratio = m_avg_gain_pct / m_avg_loss_pct if m_avg_loss_pct > 0 else 0
             m_buy_vol = group['Buy_Amount'].sum()
+            m_count = len(group)
             
             monthly_stats.append({
-                "기간": str(ym), "총 손익": float(group['P_L_Amount'].sum()), "승률": float((len(g_wins)/len(group))*100), 
-                "손익비": float(m_wl_ratio), "PF": float(pf), "매수총액": float(m_buy_vol)
+                "기간": str(ym), 
+                "총 손익": float(group['P_L_Amount'].sum()), 
+                "평균수익": float(m_avg_profit_amt),
+                "평균손실": float(m_avg_loss_amt),
+                "거래횟수": int(m_count),
+                "승률": float((len(g_wins)/len(group))*100), 
+                "손익비": float(m_wl_ratio), 
+                "PF": float(pf), 
+                "매수총액": float(m_buy_vol)
             })
-        st.dataframe(pd.DataFrame(monthly_stats).sort_values("기간", ascending=False).style.format({"총 손익": "{:,.0f}원", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}", "매수총액": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='RdYlGn'), use_container_width=True)
+            
+        st.dataframe(
+            pd.DataFrame(monthly_stats).sort_values("기간", ascending=False).style.format({
+                "총 손익": "{:,.0f}원", 
+                "평균수익": "{:,.0f}원",
+                "평균손실": "{:,.0f}원",
+                "거래횟수": "{:,}회",
+                "승률": "{:.1f}%", 
+                "손익비": "{:.2f}", 
+                "PF": "{:.2f}", 
+                "매수총액": "{:,.0f}원"
+            }).background_gradient(subset=['총 손익'], cmap='RdYlGn'), 
+            use_container_width=True
+        )
         
         with st.expander("ℹ️ 마크 미너비니의 PF(프로핏 팩터) 점수표 보기", expanded=False):
             st.markdown("""
@@ -215,25 +244,53 @@ if not df.empty:
             | **3.0 이상** | 💎 전설 | 초고수 (Legendary) |
             """)
 
-    # === TAB 3: 연도별 ===
+    # === [UPDATED] TAB 3: 연도별 (평균수익/손실 추가) ===
     with tab3:
         st.subheader("📆 연도별 종합 성적표")
         yearly_stats = []
         for y, group in df.groupby('Year'):
-            g_wins = group[group['ROI_Percent'] > 0]; g_losses = group[group['ROI_Percent'] <= 0]
+            g_wins = group[group['ROI_Percent'] > 0]
+            g_losses = group[group['ROI_Percent'] <= 0]
+            
             gross_profit = group[group['P_L_Amount'] > 0]['P_L_Amount'].sum()
             gross_loss = abs(group[group['P_L_Amount'] <= 0]['P_L_Amount'].sum())
+            
+            # 평균 금액 계산
+            y_avg_profit_amt = group[group['P_L_Amount'] > 0]['P_L_Amount'].mean() if not group[group['P_L_Amount'] > 0].empty else 0
+            y_avg_loss_amt = group[group['P_L_Amount'] <= 0]['P_L_Amount'].mean() if not group[group['P_L_Amount'] <= 0].empty else 0
+
             pf = gross_profit / gross_loss if gross_loss > 0 else 0
-            y_avg_gain = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
-            y_avg_loss = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
-            y_wl_ratio = y_avg_gain / y_avg_loss if y_avg_loss > 0 else 0
+            y_avg_gain_pct = g_wins['ROI_Percent'].mean() if not g_wins.empty else 0
+            y_avg_loss_pct = abs(g_losses['ROI_Percent'].mean()) if not g_losses.empty else 0
+            y_wl_ratio = y_avg_gain_pct / y_avg_loss_pct if y_avg_loss_pct > 0 else 0
             y_buy_vol = group['Buy_Amount'].sum()
+            y_count = len(group)
             
             yearly_stats.append({
-                "연도": int(y), "총 손익": float(group['P_L_Amount'].sum()), "승률": float((len(g_wins)/len(group))*100), 
-                "손익비": float(y_wl_ratio), "PF": float(pf), "매수총액": float(y_buy_vol)
+                "연도": int(y), 
+                "총 손익": float(group['P_L_Amount'].sum()), 
+                "평균수익": float(y_avg_profit_amt),
+                "평균손실": float(y_avg_loss_amt),
+                "거래횟수": int(y_count),
+                "승률": float((len(g_wins)/len(group))*100), 
+                "손익비": float(y_wl_ratio), 
+                "PF": float(pf), 
+                "매수총액": float(y_buy_vol)
             })
-        st.dataframe(pd.DataFrame(yearly_stats).sort_values("연도", ascending=False).style.format({"총 손익": "{:,.0f}원", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}", "매수총액": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
+            
+        st.dataframe(
+            pd.DataFrame(yearly_stats).sort_values("연도", ascending=False).style.format({
+                "총 손익": "{:,.0f}원", 
+                "평균수익": "{:,.0f}원",
+                "평균손실": "{:,.0f}원",
+                "거래횟수": "{:,}회",
+                "승률": "{:.1f}%", 
+                "손익비": "{:.2f}", 
+                "PF": "{:.2f}", 
+                "매수총액": "{:,.0f}원"
+            }).background_gradient(subset=['총 손익'], cmap='Greens'), 
+            use_container_width=True
+        )
 
     # === TAB 4: 원본 ===
     with tab4: st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
@@ -337,12 +394,11 @@ if not df.empty:
         else:
             st.info(f"📭 선택하신 **{r_period}**에는 매매 기록이 없습니다.")
 
-    # === [UPDATED] TAB 7: 심플 자금 관리 (Simple Money Manager) ===
+    # === TAB 7: 심플 자금 관리 (Simple Money Manager) ===
     with tab7:
         st.subheader("⚖️ 심플 자금 관리 (50-35-15 Rule)")
         st.markdown("**\"복잡한 건 질색! 50% - 35% - 15% 비율만 딱 알려줍니다.\"**")
         
-        # 1. 심플 입력창
         with st.container(border=True):
             col_in1, col_in2 = st.columns(2)
             with col_in1:
@@ -350,21 +406,18 @@ if not df.empty:
             with col_in2:
                 current_price = st.number_input("🎯 현재 주가 (1차 진입가)", value=70000, step=100)
 
-        # 2. 계산 로직 (50% - 35% - 15%)
         amt1 = total_money * 0.50
         amt2 = total_money * 0.35
         amt3 = total_money * 0.15
         
         qty1 = int(amt1 / current_price) if current_price > 0 else 0
         
-        # 2차/3차는 상승 가격 가정 (2차: +2%, 3차: +5%)
         price2 = int(current_price * 1.02)
         qty2 = int(amt2 / price2) if price2 > 0 else 0
         
         price3 = int(current_price * 1.05)
         qty3 = int(amt3 / price3) if price3 > 0 else 0
 
-        # 3. 결과 출력 (카드 형태)
         st.write("")
         c1, c2, c3 = st.columns(3)
         
