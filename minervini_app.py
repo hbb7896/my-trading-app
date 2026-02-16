@@ -157,15 +157,67 @@ if not df.empty:
     risk_reward_ratio = avg_win / avg_loss if avg_loss > 0 else 0
     avg_roi = df['ROI_Percent'].mean()
 
-    # === TAB 1: 차트 ===
+    # === [UPDATED] TAB 1: 차트 (전체 종합 성적표 통합) ===
     with tab1:
-        st.subheader("📍 Overall Performance")
-        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-        kpi1.metric("총 누적 손익", f"{df['P_L_Amount'].sum():,.0f}원")
-        kpi2.metric("승률", f"{win_rate:.1f}%")
-        kpi3.metric("평균 수익률", f"{avg_roi:.2f}%")
-        kpi4.metric("평균 손익비", f"{risk_reward_ratio:.2f}")
+        st.subheader("🏆 전체 종합 성적표 (Total Legend)")
         
+        # 1. 전체 통계 계산
+        total_pl = df['P_L_Amount'].sum()
+        total_cnt = len(df)
+        
+        all_wins = df[df['ROI_Percent'] > 0]
+        all_losses = df[df['ROI_Percent'] <= 0]
+        
+        # 금액 관련
+        gross_p = all_wins['P_L_Amount'].sum()
+        gross_l = abs(all_losses['P_L_Amount'].sum())
+        total_pf = gross_p / gross_l if gross_l > 0 else 0
+        
+        all_avg_profit_amt = all_wins['P_L_Amount'].mean() if not all_wins.empty else 0
+        all_avg_loss_amt = abs(all_losses['P_L_Amount'].mean()) if not all_losses.empty else 0
+        money_rr_ratio = all_avg_profit_amt / all_avg_loss_amt if all_avg_loss_amt > 0 else 0
+        
+        # 기간(%) 관련
+        all_avg_profit_pct = all_wins['ROI_Percent'].mean() if not all_wins.empty else 0
+        all_avg_loss_pct = abs(all_losses['ROI_Percent'].mean()) if not all_losses.empty else 0
+        period_rr_ratio = all_avg_profit_pct / all_avg_loss_pct if all_avg_loss_pct > 0 else 0
+        
+        # 기댓값 (Expectancy)
+        win_prob = (len(all_wins) / total_cnt) if total_cnt > 0 else 0
+        loss_prob = 1 - win_prob
+        expectancy = (win_prob * all_avg_profit_pct) - (loss_prob * all_avg_loss_pct)
+
+        # 2. 메트릭 디스플레이 (3단 구성)
+        
+        # Row 1: 가장 중요한 Top-Tier 지표
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("💰 누적 총 손익", f"{total_pl:,.0f}원")
+        m2.metric("🎯 전체 승률", f"{win_rate:.1f}%")
+        m3.metric("🔮 기간 기댓값 (Edge)", f"{expectancy:.2f}%", 
+                  help="한 번 매매할 때마다 계좌가 불어나는 평균 %")
+        m4.metric("💎 Profit Factor", f"{total_pf:.2f}")
+        
+        st.divider()
+        
+        # Row 2: 금액(Money) 베이스 분석
+        st.markdown("##### 💵 금액(Money) 성적표 (배짱)")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("평균 수익금", f"{all_avg_profit_amt:,.0f}원")
+        c2.metric("평균 손실금", f"{all_avg_loss_amt:,.0f}원")
+        c3.metric("⚖️ 금액 손익비", f"{money_rr_ratio:.2f}", 
+                  delta="Good" if money_rr_ratio > 2 else "Bad" if money_rr_ratio < 1 else None)
+        c4.metric("🛒 총 매수 대금", f"{df['Buy_Amount'].sum():,.0f}원")
+
+        # Row 3: 기간(Time/Tech) 베이스 분석
+        st.markdown("##### 📊 기간(Technical) 성적표 (기술)")
+        c5, c6, c7, c8 = st.columns(4)
+        c5.metric("평균 수익률", f"+{all_avg_profit_pct:.2f}%")
+        c6.metric("평균 손실률", f"-{all_avg_loss_pct:.2f}%")
+        c7.metric("⚖️ 기간 손익비", f"{period_rr_ratio:.2f}",
+                   delta="Good" if period_rr_ratio > 2 else "Bad" if period_rr_ratio < 1 else None)
+        c8.metric("📝 총 거래 횟수", f"{total_cnt:,}회")
+
+        # 3. 차트 섹션
         st.divider()
         st.subheader("🚀 내 계좌 vs KOSPI 지수")
         daily_df = df.groupby('Date')['P_L_Amount'].sum().reset_index().sort_values('Date')
@@ -192,9 +244,11 @@ if not df.empty:
         monthly_stats = []
         for ym, group in df.groupby('YearMonth'):
             g_wins = group[group['ROI_Percent'] > 0]; g_losses = group[group['ROI_Percent'] <= 0]
+            
             gross_profit = group[group['P_L_Amount'] > 0]['P_L_Amount'].sum()
             gross_loss = abs(group[group['P_L_Amount'] <= 0]['P_L_Amount'].sum())
             
+            # 평균 금액 계산
             m_avg_profit_amt = group[group['P_L_Amount'] > 0]['P_L_Amount'].mean() if not group[group['P_L_Amount'] > 0].empty else 0
             m_avg_loss_amt = group[group['P_L_Amount'] <= 0]['P_L_Amount'].mean() if not group[group['P_L_Amount'] <= 0].empty else 0
             
@@ -240,12 +294,13 @@ if not df.empty:
             | **3.0 이상** | 💎 전설 | 초고수 (Legendary) |
             """)
 
-    # === [UPDATED] TAB 3: 연도별 + 전체 종합 성적표 ===
+    # === TAB 3: 연도별 (거래 횟수, 평균수익/손실 추가) ===
     with tab3:
         st.subheader("📆 연도별 종합 성적표")
         yearly_stats = []
         for y, group in df.groupby('Year'):
             g_wins = group[group['ROI_Percent'] > 0]; g_losses = group[group['ROI_Percent'] <= 0]
+            
             gross_profit = group[group['P_L_Amount'] > 0]['P_L_Amount'].sum()
             gross_loss = abs(group[group['P_L_Amount'] <= 0]['P_L_Amount'].sum())
             
@@ -284,39 +339,6 @@ if not df.empty:
             }).background_gradient(subset=['총 손익'], cmap='Greens'), 
             use_container_width=True
         )
-
-        # --- [NEW] 전체 종합 성적표 섹션 ---
-        st.divider()
-        st.subheader("🏆 전체 종합 성적표 (All-Time Legend)")
-        
-        # 전체 데이터 통계 계산
-        total_pl = df['P_L_Amount'].sum()
-        total_cnt = len(df)
-        
-        all_wins = df[df['ROI_Percent'] > 0]
-        all_losses = df[df['ROI_Percent'] <= 0]
-        
-        total_win_rate = (len(all_wins) / total_cnt * 100) if total_cnt > 0 else 0
-        
-        gross_p = all_wins['P_L_Amount'].sum()
-        gross_l = abs(all_losses['P_L_Amount'].sum())
-        total_pf = gross_p / gross_l if gross_l > 0 else 0
-        
-        all_avg_profit = all_wins['P_L_Amount'].mean() if not all_wins.empty else 0
-        all_avg_loss = abs(all_losses['P_L_Amount'].mean()) if not all_losses.empty else 0
-        
-        # 메트릭 표시
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("💰 누적 총 손익", f"{total_pl:,.0f}원")
-        m2.metric("📝 총 거래 횟수", f"{total_cnt:,}회")
-        m3.metric("🎯 전체 승률", f"{total_win_rate:.1f}%")
-        m4.metric("💎 Profit Factor", f"{total_pf:.2f}")
-        
-        m5, m6, m7, m8 = st.columns(4)
-        m5.metric("📈 평균 수익금 (Win)", f"{all_avg_profit:,.0f}원")
-        m6.metric("📉 평균 손실금 (Loss)", f"{all_avg_loss:,.0f}원")
-        m7.metric("⚖️ 금액 손익비", f"{all_avg_profit/all_avg_loss:.2f}" if all_avg_loss > 0 else "∞")
-        m8.metric("🛒 총 매수 대금", f"{df['Buy_Amount'].sum():,.0f}원")
 
     # === TAB 4: 원본 ===
     with tab4: st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
