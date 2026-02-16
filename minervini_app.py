@@ -139,10 +139,10 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 8개
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    # 탭 구성: 총 9개
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "⚖️ 심플 자금 관리", "🧭 로드맵 점검"
+        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "⚖️ 심플 자금 관리", "🧭 로드맵 점검", "🔔 손익 분포"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -248,7 +248,6 @@ if not df.empty:
             gross_profit = group[group['P_L_Amount'] > 0]['P_L_Amount'].sum()
             gross_loss = abs(group[group['P_L_Amount'] <= 0]['P_L_Amount'].sum())
             
-            # 평균 금액 계산
             m_avg_profit_amt = group[group['P_L_Amount'] > 0]['P_L_Amount'].mean() if not group[group['P_L_Amount'] > 0].empty else 0
             m_avg_loss_amt = group[group['P_L_Amount'] <= 0]['P_L_Amount'].mean() if not group[group['P_L_Amount'] <= 0].empty else 0
             
@@ -592,6 +591,46 @@ if not df.empty:
             else: final_msg = "🐢 **[분발하세요]** 아직 습관이 안 고쳐졌습니다. 원칙을 다시 읽으세요."
             
             st.subheader(f"종합 판정: {final_msg}")
+
+    # === [NEW] TAB 9: 손익 분포 (Bell Curve) ===
+    with tab9:
+        st.subheader("🔔 손익 분포 (Profit/Loss Distribution)")
+        st.markdown("**\"왼쪽(손실)은 짧게, 오른쪽(수익)은 길게! 이것이 이상적인 곡선입니다.\"**")
+        
+        # 1. 히스토그램 데이터 준비
+        # ROI를 2.5% 단위로 구간화 (Binning)
+        bin_step = 2.5
+        df_dist = df.copy()
+        
+        # 차트 그리기 (Altair Histogram)
+        hist_chart = alt.Chart(df_dist).mark_bar().encode(
+            x=alt.X('ROI_Percent', bin=alt.Bin(step=bin_step), title='수익률 구간 (%)'),
+            y=alt.Y('count()', title='거래 횟수'),
+            color=alt.condition(
+                alt.datum.ROI_Percent > 0,
+                alt.value("#00AA00"),  # 수익: 초록
+                alt.value("#FF4444")   # 손실: 빨강
+            ),
+            tooltip=['count()', alt.Tooltip('ROI_Percent', bin=True, title='수익률 구간')]
+        ).properties(
+            height=400
+        )
+        
+        # 기준선 (0%)
+        rule = alt.Chart(pd.DataFrame({'x': [0]})).mark_rule(color='black', strokeDash=[2,2]).encode(x='x')
+        
+        st.altair_chart(hist_chart + rule, use_container_width=True)
+        
+        # 2. 분포 분석 멘트
+        skew = df['ROI_Percent'].skew()
+        
+        st.info(f"📊 **분포도 분석 (Skewness: {skew:.2f})**")
+        if skew > 0.5:
+            st.success("✅ **[Positive Skew]** 아주 훌륭합니다! 꼬리가 오른쪽(수익)으로 길게 뻗은 이상적인 형태입니다.")
+        elif skew < -0.5:
+            st.error("🚨 **[Negative Skew]** 위험합니다! 왼쪽(손실) 꼬리가 더 깁니다. 큰 손실 한 방을 조심하세요.")
+        else:
+            st.warning("⚠️ **[Symmetric]** 수익과 손실 패턴이 비슷합니다. '손실은 짧게' 원칙을 더 지켜야 합니다.")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
