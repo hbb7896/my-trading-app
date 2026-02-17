@@ -139,10 +139,10 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 9개
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    # 탭 구성: 총 10개
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "⚖️ 심플 자금 관리", "🧭 로드맵 점검", "🔔 손익 분포"
+        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "⚖️ 심플 자금 관리", "🧭 로드맵 점검", "🔔 손익 분포", "🔮 미너비니 시뮬레이터"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -238,7 +238,7 @@ if not df.empty:
         st.subheader("📊 월별 손익 흐름")
         st.bar_chart(df.groupby('YearMonth')['P_L_Amount'].sum())
 
-    # === TAB 2: 월별 (거래 횟수, 평균수익/손실 추가) ===
+    # === TAB 2: 월별 ===
     with tab2:
         st.subheader("📅 월별 상세 성적표")
         monthly_stats = []
@@ -283,17 +283,8 @@ if not df.empty:
             }).background_gradient(subset=['총 손익'], cmap='RdYlGn'), 
             use_container_width=True
         )
-        
-        with st.expander("ℹ️ 마크 미너비니의 PF(프로핏 팩터) 점수표 보기", expanded=False):
-            st.markdown("""
-            | PF 범위 | 상태 | 평가 |
-            | :--- | :--- | :--- |
-            | **1.0 이하** | 🚨 위험 | 손실이 더 큰 상태 |
-            | **1.5 ~ 2.0** | 👍 훌륭함 | 안정적 수익 구간 |
-            | **3.0 이상** | 💎 전설 | 초고수 (Legendary) |
-            """)
 
-    # === TAB 3: 연도별 (거래 횟수, 평균수익/손실 추가) ===
+    # === TAB 3: 연도별 ===
     with tab3:
         st.subheader("📆 연도별 종합 성적표")
         yearly_stats = []
@@ -592,13 +583,12 @@ if not df.empty:
             
             st.subheader(f"종합 판정: {final_msg}")
 
-    # === [NEW] TAB 9: 손익 분포 (Bell Curve) ===
+    # === TAB 9: 손익 분포 (Bell Curve) ===
     with tab9:
         st.subheader("🔔 손익 분포 (Profit/Loss Distribution)")
         st.markdown("**\"왼쪽(손실)은 짧게, 오른쪽(수익)은 길게! 이것이 이상적인 곡선입니다.\"**")
         
         # 1. 히스토그램 데이터 준비
-        # ROI를 2.5% 단위로 구간화 (Binning)
         bin_step = 2.5
         df_dist = df.copy()
         
@@ -631,6 +621,80 @@ if not df.empty:
             st.error("🚨 **[Negative Skew]** 위험합니다! 왼쪽(손실) 꼬리가 더 깁니다. 큰 손실 한 방을 조심하세요.")
         else:
             st.warning("⚠️ **[Symmetric]** 수익과 손실 패턴이 비슷합니다. '손실은 짧게' 원칙을 더 지켜야 합니다.")
+
+    # === [NEW] TAB 10: 미너비니 시뮬레이터 (Result-Based Forecast) ===
+    with tab10:
+        st.subheader("🔮 미너비니 시뮬레이터 (Result-Based Assumption Forecast)")
+        st.markdown("**\"목표 금액 달성까지, 몇 번의 매매가 남았을까요?\"**")
+        st.caption("출처: 마크 미너비니 <초수익 성장주 투자> '결과 기반 가정 예측'")
+
+        # 1. 시뮬레이션 입력 (Input)
+        with st.container(border=True):
+            st.markdown("#### 1️⃣ 가정 입력 (Assumptions)")
+            
+            # 기본값 설정 (현재 데이터 기반)
+            def_win_rate = float(win_rate) if not np.isnan(win_rate) else 40.0
+            def_avg_gain = float(avg_win) if not np.isnan(avg_win) and avg_win > 0 else 10.0
+            def_avg_loss = float(avg_loss) if not np.isnan(avg_loss) and avg_loss > 0 else 5.0
+            
+            c_in1, c_in2, c_in3 = st.columns(3)
+            
+            with c_in1:
+                sim_portfolio = st.number_input("💰 현재 포트폴리오 (Seed)", value=16000000, step=1000000)
+                sim_pos_size_pct = st.number_input("📊 포지션 규모 (%)", value=25.0, step=5.0) / 100
+                
+            with c_in2:
+                sim_target_return = st.number_input("🎯 목표 수익률 (%)", value=40.0, step=5.0) / 100
+                sim_target_amt = sim_portfolio * sim_target_return
+                st.caption(f"목표 수익금: +{sim_target_amt:,.0f}원")
+
+            with c_in3:
+                sim_win_rate = st.number_input("🎯 승률 (Win Rate %)", value=def_win_rate, step=1.0) / 100
+                sim_avg_gain = st.number_input("📈 평균 수익 (Avg Gain %)", value=def_avg_gain, step=0.5) / 100
+                sim_avg_loss = st.number_input("📉 평균 손실 (Avg Loss %)", value=def_avg_loss, step=0.5) / 100
+
+        # 2. 계산 로직 (Logic)
+        # 한 종목당 투입 금액
+        sim_pos_money = sim_portfolio * sim_pos_size_pct
+        
+        # 기대 수익 (Expectancy)
+        # 공식: (승률 * 평균수익%) - (패율 * 평균손실%)
+        sim_loss_rate = 1 - sim_win_rate
+        sim_net_exp_pct = (sim_win_rate * sim_avg_gain) - (sim_loss_rate * sim_avg_loss)
+        
+        # 1회 거래당 기대 수익금 (Dollar Expectancy)
+        sim_net_exp_money = sim_pos_money * sim_net_exp_pct
+        
+        # 목표 달성 필요 거래 횟수
+        if sim_net_exp_money > 0:
+            trades_needed = sim_target_amt / sim_net_exp_money
+        else:
+            trades_needed = float('inf')
+
+        # 3. 결과 출력 (Output)
+        st.divider()
+        st.markdown("#### 2️⃣ 시뮬레이션 결과 (Forecast Result)")
+
+        res_col1, res_col2 = st.columns(2)
+        
+        with res_col1:
+            st.write("📊 **거래별 기대 성과**")
+            st.markdown(f"""
+            * **포지션 투입금:** {sim_pos_money:,.0f}원
+            * **수익 거래 시 평균 수익:** +{sim_pos_money * sim_avg_gain:,.0f}원
+            * **손실 거래 시 평균 손실:** -{sim_pos_money * sim_avg_loss:,.0f}원
+            * **손익비 (Reward/Risk):** {sim_avg_gain/sim_avg_loss:.2f} : 1
+            """)
+            
+        with res_col2:
+            st.write("💎 **최종 예측 (The Forecast)**")
+            if sim_net_exp_money > 0:
+                st.metric("1회 거래당 순기대수익 (Edge)", f"{sim_net_exp_pct*100:.2f}% ({sim_net_exp_money:,.0f}원)")
+                st.success(f"### 🏁 목표 달성까지: **약 {int(trades_needed)+1} 회** 거래 필요")
+                st.caption("※ 현재의 승률과 손익비를 **꾸준히 유지한다**는 가정하에 계산된 결과입니다.")
+            else:
+                st.error("🚨 **[경고] 기대값이 마이너스입니다!**")
+                st.markdown("현재 통계로는 아무리 매매해도 계좌가 줄어듭니다. **승률**을 높이거나 **손익비**를 개선하세요.")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
