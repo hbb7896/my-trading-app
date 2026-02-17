@@ -157,7 +157,7 @@ if not df.empty:
     risk_reward_ratio = avg_win / avg_loss if avg_loss > 0 else 0
     avg_roi = df['ROI_Percent'].mean()
 
-    # === [UPDATED] TAB 1: 차트 (전체 종합 성적표 통합) ===
+    # === [UPDATED] TAB 1: 차트 (도움말 추가) ===
     with tab1:
         st.subheader("🏆 전체 종합 성적표 (Total Legend)")
         
@@ -187,34 +187,37 @@ if not df.empty:
         loss_prob = 1 - win_prob
         expectancy = (win_prob * all_avg_profit_pct) - (loss_prob * all_avg_loss_pct)
 
-        # 2. 메트릭 디스플레이 (3단 구성)
+        # 2. 메트릭 디스플레이 (도움말 추가)
         
-        # Row 1: 가장 중요한 Top-Tier 지표
+        # Row 1
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("💰 누적 총 손익", f"{total_pl:,.0f}원")
-        m2.metric("🎯 전체 승률", f"{win_rate:.1f}%")
+        m2.metric("🎯 전체 승률", f"{win_rate:.1f}%", help="총 매매 횟수 중 수익을 낸 매매의 비율입니다.")
         m3.metric("🔮 기간 기댓값 (Edge)", f"{expectancy:.2f}%", 
-                  help="한 번 매매할 때마다 계좌가 불어나는 평균 %")
-        m4.metric("💎 Profit Factor", f"{total_pf:.2f}")
+                  help="(승률 × 평균수익%) - (패율 × 평균손실%). 매매를 한 번 할 때마다 계좌가 평균적으로 몇 %씩 성장하는지 보여주는 '수학적 우위'입니다.")
+        m4.metric("💎 Profit Factor", f"{total_pf:.2f}",
+                  help="총 이익금 ÷ 총 손실금. '번 돈이 잃은 돈보다 몇 배 많은가?'를 나타냅니다. 1.5 이상이면 훌륭하고, 3.0 이상이면 초고수입니다.")
         
         st.divider()
         
-        # Row 2: 금액(Money) 베이스 분석
+        # Row 2
         st.markdown("##### 💵 금액(Money) 성적표 (배짱)")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("평균 수익금", f"{all_avg_profit_amt:,.0f}원")
         c2.metric("평균 손실금", f"{all_avg_loss_amt:,.0f}원")
         c3.metric("⚖️ 금액 손익비", f"{money_rr_ratio:.2f}", 
-                  delta="Good" if money_rr_ratio > 2 else "Bad" if money_rr_ratio < 1 else None)
+                  delta="Good" if money_rr_ratio > 2 else "Bad" if money_rr_ratio < 1 else None,
+                  help="평균 수익금 ÷ 평균 손실금. 이 수치가 높다면 '이길 때 크게 베팅(불타기)'을 잘하고 있다는 뜻입니다. 자금 관리 능력을 보여줍니다.")
         c4.metric("🛒 총 매수 대금", f"{df['Buy_Amount'].sum():,.0f}원")
 
-        # Row 3: 기간(Time/Tech) 베이스 분석
+        # Row 3
         st.markdown("##### 📊 기간(Technical) 성적표 (기술)")
         c5, c6, c7, c8 = st.columns(4)
         c5.metric("평균 수익률", f"+{all_avg_profit_pct:.2f}%")
         c6.metric("평균 손실률", f"-{all_avg_loss_pct:.2f}%")
         c7.metric("⚖️ 기간 손익비", f"{period_rr_ratio:.2f}",
-                   delta="Good" if period_rr_ratio > 2 else "Bad" if period_rr_ratio < 1 else None)
+                   delta="Good" if period_rr_ratio > 2 else "Bad" if period_rr_ratio < 1 else None,
+                   help="평균 수익률(%) ÷ 평균 손실률(%). 순수한 차트 분석 및 타점 능력을 보여줍니다.")
         c8.metric("📝 총 거래 횟수", f"{total_cnt:,}회")
 
         # 3. 차트 섹션
@@ -333,7 +336,7 @@ if not df.empty:
     # === TAB 4: 원본 ===
     with tab4: st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
 
-    # === TAB 5: 빅터 스페란데오 분석 ===
+    # === TAB 5: 빅터 스페란데오 분석 (도움말 추가) ===
     with tab5:
         st.subheader("⚖️ Victor Sperandeo's Reward-to-Risk Analysis")
         st.markdown("> **\"최소 3:1의 보상 비율이 나오지 않는 거래는 시작조차 하지 마라.\"** - Victor Sperandeo")
@@ -367,11 +370,14 @@ if not df.empty:
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.metric("기간 손익비 (R/R)", f"{v_rr_ratio:.2f} : 1",
-                    delta="목표 달성" if v_rr_ratio >= 3.0 else "목표 미달")
+                    delta="목표 달성" if v_rr_ratio >= 3.0 else "목표 미달",
+                    help="빅터 스페란데오는 진입 전 기대 수익이 손절폭의 최소 3배 이상인 자리만 매매하라고 했습니다.")
             with c2:
-                st.metric("기간 기댓값 (Edge)", f"{v_expectancy:.2f}%")
+                st.metric("기간 기댓값 (Edge)", f"{v_expectancy:.2f}%",
+                    help="이 매매 규칙을 계속 반복했을 때, 평균적으로 기대할 수 있는 수익률입니다.")
             with c3:
-                st.metric("빅터의 목표 기준", "3.0 : 1")
+                st.metric("빅터의 목표 기준", "3.0 : 1",
+                    help="손실 1일 때, 수익 3을 목표로 한다는 뜻입니다.")
             
             st.divider()
             target_roi_period = v_avg_loss * 3 if v_avg_loss > 0 else 10
@@ -390,7 +396,7 @@ if not df.empty:
         else:
             st.info(f"📭 선택하신 **{vic_period}**에는 매매 기록이 없습니다.")
 
-    # === TAB 6: R-배수 분석 ===
+    # === TAB 6: R-배수 분석 (도움말 추가) ===
     with tab6:
         st.subheader("🎯 R-배수 분석 (The Real Score)")
         st.markdown("**'R'은 나의 위험(Risk) 단위입니다.**")
@@ -414,9 +420,12 @@ if not df.empty:
             r_df['R_Value'] = r_df['P_L_Amount'] / avg_loss_abs
             
             c1, c2, c3 = st.columns(3)
-            c1.metric(f"나의 1R ({r_period})", f"{avg_loss_abs:,.0f}원")
-            c2.metric("평균 R-배수", f"{r_df['R_Value'].mean():.2f}R")
-            c3.metric("최고 R-배수", f"{r_df['R_Value'].max():.2f}R")
+            c1.metric(f"나의 1R ({r_period})", f"{avg_loss_abs:,.0f}원",
+                      help="내가 한 번 손절할 때 잃는 평균 금액입니다. 이것을 '1R'이라는 위험 단위로 사용합니다.")
+            c2.metric("평균 R-배수", f"{r_df['R_Value'].mean():.2f}R",
+                      help="수익을 냈을 때, 평소 손실금(1R)의 몇 배를 벌었는지 나타냅니다. 예를 들어 2R이면 '손절금의 2배를 벌었다'는 뜻입니다.")
+            c3.metric("최고 R-배수", f"{r_df['R_Value'].max():.2f}R",
+                      help="기간 내 가장 크게 번 수익이 손절금의 몇 배인지 보여줍니다. 홈런의 크기입니다.")
             
             st.divider()
             df_sorted_r = r_df.sort_values('Date').copy()
@@ -622,7 +631,7 @@ if not df.empty:
         else:
             st.warning("⚠️ **[Symmetric]** 수익과 손실 패턴이 비슷합니다. '손실은 짧게' 원칙을 더 지켜야 합니다.")
 
-    # === [NEW] TAB 10: 미너비니 시뮬레이터 (Result-Based Forecast) ===
+    # === TAB 10: 미너비니 시뮬레이터 (Result-Based Forecast) ===
     with tab10:
         st.subheader("🔮 미너비니 시뮬레이터 (Result-Based Assumption Forecast)")
         st.markdown("**\"목표 금액 달성까지, 몇 번의 매매가 남았을까요?\"**")
@@ -689,7 +698,8 @@ if not df.empty:
         with res_col2:
             st.write("💎 **최종 예측 (The Forecast)**")
             if sim_net_exp_money > 0:
-                st.metric("1회 거래당 순기대수익 (Edge)", f"{sim_net_exp_pct*100:.2f}% ({sim_net_exp_money:,.0f}원)")
+                st.metric("1회 거래당 순기대수익 (Edge)", f"{sim_net_exp_pct*100:.2f}% ({sim_net_exp_money:,.0f}원)",
+                          help="현재 승률과 손익비를 유지한다고 가정할 때, 한 번 매매할 때마다 계좌가 불어나는 평균 금액입니다.")
                 st.success(f"### 🏁 목표 달성까지: **약 {int(trades_needed)+1} 회** 거래 필요")
                 st.caption("※ 현재의 승률과 손익비를 **꾸준히 유지한다**는 가정하에 계산된 결과입니다.")
             else:
