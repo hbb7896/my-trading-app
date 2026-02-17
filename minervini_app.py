@@ -139,10 +139,10 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 10개
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
+    # 탭 구성: 총 11개 (기존 10개 + 신호등 배팅 추가)
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "⚖️ 심플 자금 관리", "🧭 로드맵 점검", "🔔 손익 분포", "🔮 미너비니 시뮬레이터"
+        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "⚖️ 심플 자금 관리", "🧭 로드맵 점검", "🔔 손익 분포", "🔮 미너비니 시뮬레이터", "🚦 신호등 배팅"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -659,22 +659,14 @@ if not df.empty:
 
             with c_in3:
                 sim_win_rate = st.number_input("🎯 승률 (Win Rate %)", value=def_win_rate, step=1.0) / 100
-                sim_avg_gain = st.number_input("📈 평균 수익 (Avg Gain %)", value=def_avg_gain, step=0.5) / 100
-                sim_avg_loss = st.number_input("📉 평균 손실 (Avg Loss %)", value=def_avg_loss, step=0.5) / 100
+                sim_avg_gain = st.number_input("📈 평균 수익 (Avg Gain %)", value=def_avg_gain, step=0.5) / 100; sim_avg_loss = st.number_input("📉 평균 손실 (Avg Loss %)", value=def_avg_loss, step=0.5) / 100
 
         # 2. 계산 로직 (Logic)
-        # 한 종목당 투입 금액
         sim_pos_money = sim_portfolio * sim_pos_size_pct
-        
-        # 기대 수익 (Expectancy)
-        # 공식: (승률 * 평균수익%) - (패율 * 평균손실%)
         sim_loss_rate = 1 - sim_win_rate
         sim_net_exp_pct = (sim_win_rate * sim_avg_gain) - (sim_loss_rate * sim_avg_loss)
-        
-        # 1회 거래당 기대 수익금 (Dollar Expectancy)
         sim_net_exp_money = sim_pos_money * sim_net_exp_pct
         
-        # 목표 달성 필요 거래 횟수
         if sim_net_exp_money > 0:
             trades_needed = sim_target_amt / sim_net_exp_money
         else:
@@ -705,6 +697,103 @@ if not df.empty:
             else:
                 st.error("🚨 **[경고] 기대값이 마이너스입니다!**")
                 st.markdown("현재 통계로는 아무리 매매해도 계좌가 줄어듭니다. **승률**을 높이거나 **손익비**를 개선하세요.")
+
+    # === [NEW] TAB 11: 배팅 규모 계산기 (Progressive Exposure) ===
+    with tab11:
+        st.subheader("🚦 신호등 배팅 (Progressive Exposure)")
+        st.markdown("**\"최근 전적에 따라 이번 배팅 금액을 정해드립니다. (신호등 시스템)\"**")
+        
+        
+        # 1. 설정값 입력
+        with st.expander("⚙️ 기본 설정 (내 자산 세팅)", expanded=True):
+            col_set1, col_set2 = st.columns(2)
+            with col_set1:
+                my_total_equity = st.number_input("💰 나의 총 자산 (Equity)", value=20000000, step=1000000, 
+                                                  help="주식 계좌에 있는 총 예수금+주식 평가액입니다.")
+            with col_set2:
+                my_max_position = st.number_input("🎯 종목당 최대 배팅금 (Max)", value=5000000, step=500000,
+                                                  help="가장 확실할 때(초록불) 들어갈 최대 금액입니다. 보통 자산의 25%를 잡습니다.")
+
+        # 2. 시뮬레이션 버튼
+        st.divider()
+        st.markdown("#### 👇 최근 매매 결과를 눌러주세요")
+        
+        # 세션 상태 초기화 (기록 저장용)
+        if 'trade_streak' not in st.session_state:
+            st.session_state.trade_streak = [] # 0: Loss, 1: Win
+
+        col_btn1, col_btn2, col_btn3 = st.columns(3)
+        with col_btn1:
+            if st.button("🟢 수익 (WIN)", use_container_width=True):
+                st.session_state.trade_streak.append("WIN")
+        with col_btn2:
+            if st.button("🔴 손실 (LOSS)", use_container_width=True):
+                st.session_state.trade_streak.append("LOSS")
+        with col_btn3:
+            if st.button("🔄 기록 초기화", use_container_width=True):
+                st.session_state.trade_streak = []
+
+        # 3. 로직 계산 (신호등)
+        history = st.session_state.trade_streak
+        current_status = "READY"
+        rec_percent = 0
+        rec_money = 0
+        
+        if not history:
+            current_status = "NEUTRAL"
+            rec_percent = 0.50 # 기본 50% 시작
+        else:
+            last_trade = history[-1]
+            
+            if last_trade == "LOSS":
+                current_status = "RED" # 빨간불 (방어)
+                rec_percent = 0.25
+            elif last_trade == "WIN":
+                if len(history) >= 2 and history[-2] == "WIN":
+                    current_status = "GREEN" # 초록불 (공격)
+                    rec_percent = 1.0
+                else:
+                    current_status = "YELLOW" # 노란불 (경계/준비)
+                    rec_percent = 0.50
+
+        rec_money = int(my_max_position * rec_percent)
+
+        # 4. 결과 디스플레이
+        st.divider()
+        st.write(f"📜 **최근 기록:** {' → '.join(history[-5:])}") # 최근 5개만 보여줌
+        
+        if current_status == "GREEN":
+            st.success(f"""
+            ### 🟢 **[초록불] 공격 모드 (Full Size)**
+            **"감이 좋습니다! 물 들어올 때 노 저으세요."**
+            
+            # **{rec_money:,.0f} 원** 투입
+            (최대 배팅금의 **100%**)
+            """)
+        elif current_status == "YELLOW":
+            st.warning(f"""
+            ### 🟡 **[노란불] 경계 모드 (Half Size)**
+            **"나쁘지 않지만, 아직 확신하긴 이릅니다. 절반만 들어갑니다."**
+            
+            # **{rec_money:,.0f} 원** 투입
+            (최대 배팅금의 **50%**)
+            """)
+        elif current_status == "RED":
+            st.error(f"""
+            ### 🔴 **[빨간불] 방어 모드 (Pilot Size)**
+            **"조심하세요! 최근 손실이 있었습니다. 정찰병만 보냅니다."**
+            
+            # **{rec_money:,.0f} 원** 투입
+            (최대 배팅금의 **25%**)
+            """)
+        else:
+            st.info(f"""
+            ### ⚪ **[준비] 시작 모드**
+            **"첫 진입입니다. 가볍게 절반으로 시작해볼까요?"**
+            
+            # **{rec_money:,.0f} 원** 투입
+            (최대 배팅금의 **50%**)
+            """)
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
