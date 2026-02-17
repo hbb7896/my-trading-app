@@ -139,7 +139,7 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 10개 (심플자금관리 삭제됨)
+    # 탭 구성: 총 10개
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
         "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "🔮 미너비니 시뮬레이터", "🚦 신호등 배팅"
@@ -157,18 +157,14 @@ if not df.empty:
     risk_reward_ratio = avg_win / avg_loss if avg_loss > 0 else 0
     avg_roi = df['ROI_Percent'].mean()
 
-    # === [UPDATED] TAB 1: 차트 (도움말 추가) ===
+    # === TAB 1: 차트 ===
     with tab1:
         st.subheader("🏆 전체 종합 성적표 (Total Legend)")
-        
-        # 1. 전체 통계 계산
         total_pl = df['P_L_Amount'].sum()
         total_cnt = len(df)
-        
         all_wins = df[df['ROI_Percent'] > 0]
         all_losses = df[df['ROI_Percent'] <= 0]
         
-        # 금액 관련
         gross_p = all_wins['P_L_Amount'].sum()
         gross_l = abs(all_losses['P_L_Amount'].sum())
         total_pf = gross_p / gross_l if gross_l > 0 else 0
@@ -177,67 +173,49 @@ if not df.empty:
         all_avg_loss_amt = abs(all_losses['P_L_Amount'].mean()) if not all_losses.empty else 0
         money_rr_ratio = all_avg_profit_amt / all_avg_loss_amt if all_avg_loss_amt > 0 else 0
         
-        # 기간(%) 관련
         all_avg_profit_pct = all_wins['ROI_Percent'].mean() if not all_wins.empty else 0
         all_avg_loss_pct = abs(all_losses['ROI_Percent'].mean()) if not all_losses.empty else 0
         period_rr_ratio = all_avg_profit_pct / all_avg_loss_pct if all_avg_loss_pct > 0 else 0
         
-        # 기댓값 (Expectancy)
         win_prob = (len(all_wins) / total_cnt) if total_cnt > 0 else 0
         loss_prob = 1 - win_prob
         expectancy = (win_prob * all_avg_profit_pct) - (loss_prob * all_avg_loss_pct)
 
-        # 2. 메트릭 디스플레이 (도움말 추가)
-        
-        # Row 1
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("💰 누적 총 손익", f"{total_pl:,.0f}원")
         m2.metric("🎯 전체 승률", f"{win_rate:.1f}%", help="총 매매 횟수 중 수익을 낸 매매의 비율입니다.")
-        m3.metric("🔮 기간 기댓값 (Edge)", f"{expectancy:.2f}%", 
-                  help="(승률 × 평균수익%) - (패율 × 평균손실%). 매매를 한 번 할 때마다 계좌가 평균적으로 몇 %씩 성장하는지 보여주는 '수학적 우위'입니다.")
-        m4.metric("💎 Profit Factor", f"{total_pf:.2f}",
-                  help="총 이익금 ÷ 총 손실금. '번 돈이 잃은 돈보다 몇 배 많은가?'를 나타냅니다. 1.5 이상이면 훌륭하고, 3.0 이상이면 초고수입니다.")
+        m3.metric("🔮 기간 기댓값 (Edge)", f"{expectancy:.2f}%", help="(승률 × 평균수익%) - (패율 × 평균손실%). 매매를 한 번 할 때마다 계좌가 평균적으로 몇 %씩 성장하는지 보여주는 '수학적 우위'입니다.")
+        m4.metric("💎 Profit Factor", f"{total_pf:.2f}", help="총 이익금 ÷ 총 손실금. '번 돈이 잃은 돈보다 몇 배 많은가?'를 나타냅니다. 1.5 이상이면 훌륭하고, 3.0 이상이면 초고수입니다.")
         
         st.divider()
-        
-        # Row 2
         st.markdown("##### 💵 금액(Money) 성적표 (배짱)")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("평균 수익금", f"{all_avg_profit_amt:,.0f}원")
         c2.metric("평균 손실금", f"{all_avg_loss_amt:,.0f}원")
-        c3.metric("⚖️ 금액 손익비", f"{money_rr_ratio:.2f}", 
-                  delta="Good" if money_rr_ratio > 2 else "Bad" if money_rr_ratio < 1 else None,
-                  help="평균 수익금 ÷ 평균 손실금. 이 수치가 높다면 '이길 때 크게 베팅(불타기)'을 잘하고 있다는 뜻입니다. 자금 관리 능력을 보여줍니다.")
+        c3.metric("⚖️ 금액 손익비", f"{money_rr_ratio:.2f}", delta="Good" if money_rr_ratio > 2 else "Bad" if money_rr_ratio < 1 else None, help="평균 수익금 ÷ 평균 손실금. 이 수치가 높다면 '이길 때 크게 베팅(불타기)'을 잘하고 있다는 뜻입니다.")
         c4.metric("🛒 총 매수 대금", f"{df['Buy_Amount'].sum():,.0f}원")
 
-        # Row 3
         st.markdown("##### 📊 기간(Technical) 성적표 (기술)")
         c5, c6, c7, c8 = st.columns(4)
         c5.metric("평균 수익률", f"+{all_avg_profit_pct:.2f}%")
         c6.metric("평균 손실률", f"-{all_avg_loss_pct:.2f}%")
-        c7.metric("⚖️ 기간 손익비", f"{period_rr_ratio:.2f}",
-                   delta="Good" if period_rr_ratio > 2 else "Bad" if period_rr_ratio < 1 else None,
-                   help="평균 수익률(%) ÷ 평균 손실률(%). 순수한 차트 분석 및 타점 능력을 보여줍니다.")
+        c7.metric("⚖️ 기간 손익비", f"{period_rr_ratio:.2f}", delta="Good" if period_rr_ratio > 2 else "Bad" if period_rr_ratio < 1 else None, help="평균 수익률(%) ÷ 평균 손실률(%). 순수한 차트 분석 및 타점 능력을 보여줍니다.")
         c8.metric("📝 총 거래 횟수", f"{total_cnt:,}회")
 
-        # 3. 차트 섹션
         st.divider()
         st.subheader("🚀 내 계좌 vs KOSPI 지수")
         daily_df = df.groupby('Date')['P_L_Amount'].sum().reset_index().sort_values('Date')
         daily_df['Cumulative'] = daily_df['P_L_Amount'].cumsum()
-        
         try:
             start = daily_df['Date'].min().strftime('%Y-%m-%d')
             kospi = yf.download("^KS11", start=start, progress=False)['Close'].reset_index()
             kospi.columns = ['Date', 'KOSPI']
             kospi['Date'] = pd.to_datetime(kospi['Date']).dt.tz_localize(None)
-            
             base = alt.Chart(daily_df).encode(x='Date:T')
             my_chart = base.mark_line(color='#00AA00', strokeWidth=3).encode(y=alt.Y('Cumulative:Q', title='내 수익'), tooltip=['Date', 'Cumulative'])
             kospi_chart = alt.Chart(kospi).mark_line(color='#FF4444', strokeDash=[5,5]).encode(x='Date:T', y=alt.Y('KOSPI:Q', title='KOSPI', scale=alt.Scale(zero=False)))
             st.altair_chart(alt.layer(my_chart, kospi_chart).resolve_scale(y='independent'), use_container_width=True)
         except: st.line_chart(daily_df.set_index('Date')['Cumulative'])
-        
         st.subheader("📊 월별 손익 흐름")
         st.bar_chart(df.groupby('YearMonth')['P_L_Amount'].sum())
 
@@ -282,48 +260,51 @@ if not df.empty:
     # === TAB 4: 원본 ===
     with tab4: st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
 
-    # === TAB 5: 빅터 스페란데오 분석 (도움말 추가) ===
+    # === TAB 5: 빅터 스페란데오 ===
     with tab5:
         st.subheader("⚖️ Victor Sperandeo's Reward-to-Risk Analysis")
         st.markdown("> **\"최소 3:1의 보상 비율이 나오지 않는 거래는 시작조차 하지 마라.\"** - Victor Sperandeo")
-        
         vic_period = st.radio("📅 분석 기간 선택", ["전체", "최근 1개월", "최근 3개월", "최근 6개월", "최근 1년"], horizontal=True, key="vic_radio")
-        
         vic_df = df.copy()
         today = datetime.today()
-        
         if vic_period == "최근 1개월": vic_df = vic_df[vic_df['Date'] >= (today - timedelta(days=30))]
         elif vic_period == "최근 3개월": vic_df = vic_df[vic_df['Date'] >= (today - timedelta(days=90))]
         elif vic_period == "최근 6개월": vic_df = vic_df[vic_df['Date'] >= (today - timedelta(days=180))]
         elif vic_period == "최근 1년": vic_df = vic_df[vic_df['Date'] >= (today - timedelta(days=365))]
-            
         if not vic_df.empty:
-            v_wins = vic_df[vic_df['ROI_Percent'] > 0]; v_losses = vic_df[vic_df['ROI_Percent'] <= 0]; v_win_rate = (len(v_wins) / len(vic_df)) * 100; v_avg_win = v_wins['ROI_Percent'].mean() if not v_wins.empty else 0; v_avg_loss = abs(v_losses['ROI_Percent'].mean()) if not v_losses.empty else 0; v_rr_ratio = v_avg_win / v_avg_loss if v_avg_loss > 0 else 0; v_win_prob = v_win_rate / 100; v_loss_prob = 1 - v_win_prob; v_expectancy = (v_win_prob * v_avg_win) - (v_loss_prob * v_avg_loss)
+            v_wins = vic_df[vic_df['ROI_Percent'] > 0]; v_losses = vic_df[vic_df['ROI_Percent'] <= 0]
+            v_win_rate = (len(v_wins) / len(vic_df)) * 100
+            v_avg_win = v_wins['ROI_Percent'].mean() if not v_wins.empty else 0
+            v_avg_loss = abs(v_losses['ROI_Percent'].mean()) if not v_losses.empty else 0
+            v_rr_ratio = v_avg_win / v_avg_loss if v_avg_loss > 0 else 0
+            v_win_prob = v_win_rate / 100; v_loss_prob = 1 - v_win_prob
+            v_expectancy = (v_win_prob * v_avg_win) - (v_loss_prob * v_avg_loss)
             st.caption(f"🔎 **{vic_period}** 데이터 기준 분석 ({len(vic_df)}건)")
             c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("기간 손익비 (R/R)", f"{v_rr_ratio:.2f} : 1", delta="목표 달성" if v_rr_ratio >= 3.0 else "목표 미달", help="빅터 스페란데오는 진입 전 기대 수익이 손절폭의 최소 3배 이상인 자리만 매매하라고 했습니다.")
-            with c2:
-                st.metric("기간 기댓값 (Edge)", f"{v_expectancy:.2f}%", help="이 매매 규칙을 계속 반복했을 때, 평균적으로 기대할 수 있는 수익률입니다.")
-            with c3:
-                st.metric("빅터의 목표 기준", "3.0 : 1", help="손실 1일 때, 수익 3을 목표로 한다는 뜻입니다.")
-            st.divider(); target_roi_period = v_avg_loss * 3 if v_avg_loss > 0 else 10; conditions = [(vic_df['ROI_Percent'] >= target_roi_period), (vic_df['ROI_Percent'] > 0)]; colors = ["#00CC00", "#F1C40F"]; vic_df['Color_Hex'] = np.select(conditions, colors, default="#FF4B4B"); scatter_chart = alt.Chart(vic_df).mark_circle(size=100).encode(x=alt.X('Date', title='거래 일자'), y=alt.Y('ROI_Percent', title='수익률 (%)'), color=alt.Color('Color_Hex', scale=None, legend=None), tooltip=['Ticker', 'Date', 'ROI_Percent', 'P_L_Amount']).interactive(); rule_line = alt.Chart(pd.DataFrame({'y': [target_roi_period]})).mark_rule(color='blue', strokeDash=[3,3]).encode(y='y'); st.altair_chart(scatter_chart + rule_line, use_container_width=True)
+            with c1: st.metric("기간 손익비 (R/R)", f"{v_rr_ratio:.2f} : 1", delta="목표 달성" if v_rr_ratio >= 3.0 else "목표 미달", help="빅터 스페란데오는 진입 전 기대 수익이 손절폭의 최소 3배 이상인 자리만 매매하라고 했습니다.")
+            with c2: st.metric("기간 기댓값 (Edge)", f"{v_expectancy:.2f}%", help="이 매매 규칙을 계속 반복했을 때, 평균적으로 기대할 수 있는 수익률입니다.")
+            with c3: st.metric("빅터의 목표 기준", "3.0 : 1", help="손실 1일 때, 수익 3을 목표로 한다는 뜻입니다.")
+            st.divider()
+            target_roi_period = v_avg_loss * 3 if v_avg_loss > 0 else 10
+            conditions = [(vic_df['ROI_Percent'] >= target_roi_period), (vic_df['ROI_Percent'] > 0)]
+            colors = ["#00CC00", "#F1C40F"]
+            vic_df['Color_Hex'] = np.select(conditions, colors, default="#FF4B4B")
+            scatter_chart = alt.Chart(vic_df).mark_circle(size=100).encode(x=alt.X('Date', title='거래 일자'), y=alt.Y('ROI_Percent', title='수익률 (%)'), color=alt.Color('Color_Hex', scale=None, legend=None), tooltip=['Ticker', 'Date', 'ROI_Percent', 'P_L_Amount']).interactive()
+            rule_line = alt.Chart(pd.DataFrame({'y': [target_roi_period]})).mark_rule(color='blue', strokeDash=[3,3]).encode(y='y')
+            st.altair_chart(scatter_chart + rule_line, use_container_width=True)
         else: st.info(f"📭 선택하신 **{vic_period}**에는 매매 기록이 없습니다.")
 
-    # === TAB 6: R-배수 분석 (도움말 추가) ===
+    # === TAB 6: R-배수 분석 ===
     with tab6:
         st.subheader("🎯 R-배수 분석 (The Real Score)")
         st.markdown("**'R'은 나의 위험(Risk) 단위입니다.**")
-        
         r_period = st.radio("📅 분석 기간 선택", ["전체", "최근 1개월", "최근 3개월", "최근 6개월", "최근 1년"], horizontal=True, key="r_radio")
         r_df = df.copy()
         today = datetime.today()
-        
         if r_period == "최근 1개월": r_df = r_df[r_df['Date'] >= (today - timedelta(days=30))]
         elif r_period == "최근 3개월": r_df = r_df[r_df['Date'] >= (today - timedelta(days=90))]
         elif r_period == "최근 6개월": r_df = r_df[r_df['Date'] >= (today - timedelta(days=180))]
         elif r_period == "최근 1년": r_df = r_df[r_df['Date'] >= (today - timedelta(days=365))]
-            
         if not r_df.empty:
             r_losses = r_df[r_df['P_L_Amount'] < 0]
             if not r_losses.empty: avg_loss_abs = abs(r_losses['P_L_Amount'].mean())
@@ -333,68 +314,124 @@ if not df.empty:
             c1.metric(f"나의 1R ({r_period})", f"{avg_loss_abs:,.0f}원", help="내가 한 번 손절할 때 잃는 평균 금액입니다. 이것을 '1R'이라는 위험 단위로 사용합니다.")
             c2.metric("평균 R-배수", f"{r_df['R_Value'].mean():.2f}R", help="수익을 냈을 때, 평소 손실금(1R)의 몇 배를 벌었는지 나타냅니다. 예를 들어 2R이면 '손절금의 2배를 벌었다'는 뜻입니다.")
             c3.metric("최고 R-배수", f"{r_df['R_Value'].max():.2f}R", help="기간 내 가장 크게 번 수익이 손절금의 몇 배인지 보여줍니다. 홈런의 크기입니다.")
-            st.divider(); df_sorted_r = r_df.sort_values('Date').copy(); df_sorted_r['Cumulative_R'] = df_sorted_r['R_Value'].cumsum(); df_sorted_r['Trade_Num'] = range(1, len(df_sorted_r) + 1); line_r = alt.Chart(df_sorted_r).mark_line(color='blue').encode(x=alt.X('Trade_Num', title='거래 횟수'), y=alt.Y('Cumulative_R', title='누적 R'), tooltip=['Date', 'R_Value', 'Cumulative_R']); st.altair_chart(line_r, use_container_width=True)
+            st.divider()
+            df_sorted_r = r_df.sort_values('Date').copy()
+            df_sorted_r['Cumulative_R'] = df_sorted_r['R_Value'].cumsum()
+            df_sorted_r['Trade_Num'] = range(1, len(df_sorted_r) + 1)
+            line_r = alt.Chart(df_sorted_r).mark_line(color='blue').encode(x=alt.X('Trade_Num', title='거래 횟수'), y=alt.Y('Cumulative_R', title='누적 R'), tooltip=['Date', 'R_Value', 'Cumulative_R'])
+            st.altair_chart(line_r, use_container_width=True)
         else: st.info(f"📭 선택하신 **{r_period}**에는 매매 기록이 없습니다.")
 
-    # === [삭제됨] TAB 7: 심플 자금 관리 (Simple Money Manager) ===
-    # (삭제 요청으로 제거됨, 이후 탭 번호 당겨짐)
-
-    # === TAB 7 (구 8): 로드맵 점검 ===
+    # === TAB 7: 로드맵 점검 ===
     with tab7:
-        st.subheader("🧭 로드맵 이행 점검 (Roadmap Check)"); st.markdown("**\"김 대리가 내준 3가지 숙제, 잘 하고 계십니까?\"**"); st.caption("최근 10건의 매매(New)와 그 이전 매매(Old)를 비교 분석합니다."); df_sorted = df.sort_values('Date', ascending=False);
+        st.subheader("🧭 로드맵 이행 점검 (Roadmap Check)")
+        st.markdown("**\"김 대리가 내준 3가지 숙제, 잘 하고 계십니까?\"**")
+        st.caption("최근 10건의 매매(New)와 그 이전 매매(Old)를 비교 분석합니다.")
+        df_sorted = df.sort_values('Date', ascending=False)
         if len(df_sorted) < 5: st.warning("⚠️ 분석할 데이터가 부족합니다. 최소 5건 이상 매매 후 확인해주세요.")
         else:
-            recent_n = 10; df_recent = df_sorted.head(recent_n); df_old = df_sorted.iloc[recent_n:]; 
+            recent_n = 10; df_recent = df_sorted.head(recent_n); df_old = df_sorted.iloc[recent_n:]
             if df_old.empty: df_old = df_recent
-            st.markdown("### 1️⃣ 숙제 1: 손절 다이어트 (목표: -4% 이내)"); recent_losses = df_recent[df_recent['ROI_Percent'] < 0]; old_losses = df_old[df_old['ROI_Percent'] < 0]; r_avg_loss = recent_losses['ROI_Percent'].mean() if not recent_losses.empty else 0.0; o_avg_loss = old_losses['ROI_Percent'].mean() if not old_losses.empty else 0.0; col1, col2, col3 = st.columns(3); col1.metric("과거 평균 손실", f"{o_avg_loss:.2f}%"); col2.metric("최근 평균 손실 (New)", f"{r_avg_loss:.2f}%", delta=f"{r_avg_loss - o_avg_loss:.2f}%p" if r_avg_loss > o_avg_loss else None);
-            with col3: 
+            st.markdown("### 1️⃣ 숙제 1: 손절 다이어트 (목표: -4% 이내)")
+            recent_losses = df_recent[df_recent['ROI_Percent'] < 0]; old_losses = df_old[df_old['ROI_Percent'] < 0]
+            r_avg_loss = recent_losses['ROI_Percent'].mean() if not recent_losses.empty else 0.0
+            o_avg_loss = old_losses['ROI_Percent'].mean() if not old_losses.empty else 0.0
+            col1, col2, col3 = st.columns(3)
+            col1.metric("과거 평균 손실", f"{o_avg_loss:.2f}%")
+            col2.metric("최근 평균 손실 (New)", f"{r_avg_loss:.2f}%", delta=f"{r_avg_loss - o_avg_loss:.2f}%p" if r_avg_loss > o_avg_loss else None)
+            with col3:
                 if r_avg_loss >= -4.5: st.success("✅ **합격!** 아주 훌륭합니다.")
                 elif r_avg_loss > -6.0: st.warning("⚠️ **노력 요함** 조금만 더 줄이세요.")
                 else: st.error("❌ **불합격** 아직도 손절이 큽니다.")
-            st.divider(); st.markdown("### 2️⃣ 숙제 2: 선구안 개선 (A급 패턴만)"); r_win_rate = (len(df_recent[df_recent['ROI_Percent'] > 0]) / len(df_recent)) * 100; o_win_rate = (len(df_old[df_old['ROI_Percent'] > 0]) / len(df_old)) * 100; c1, c2, c3 = st.columns(3); c1.metric("과거 승률", f"{o_win_rate:.1f}%"); c2.metric("최근 승률 (New)", f"{r_win_rate:.1f}%", f"{r_win_rate - o_win_rate:.1f}%p");
+            st.divider()
+            st.markdown("### 2️⃣ 숙제 2: 선구안 개선 (A급 패턴만)")
+            r_win_rate = (len(df_recent[df_recent['ROI_Percent'] > 0]) / len(df_recent)) * 100
+            o_win_rate = (len(df_old[df_old['ROI_Percent'] > 0]) / len(df_old)) * 100
+            c1, c2, c3 = st.columns(3)
+            c1.metric("과거 승률", f"{o_win_rate:.1f}%")
+            c2.metric("최근 승률 (New)", f"{r_win_rate:.1f}%", f"{r_win_rate - o_win_rate:.1f}%p")
             with c3:
                 if r_win_rate >= 40: st.success("✅ **나이스!** 기다림의 미학을 아시는군요.")
                 elif r_win_rate >= o_win_rate: st.info("🆗 **유지 중** 나쁘지 않습니다.")
                 else: st.error("❌ **뇌동매매 주의** 아무 공이나 휘두르고 계십니다.")
-            st.divider(); st.markdown("### 3️⃣ 숙제 3: 홈런 본능 (불타기 & 홀딩)"); recent_wins = df_recent[df_recent['ROI_Percent'] > 0]; r_max_win = recent_wins['ROI_Percent'].max() if not recent_wins.empty else 0; r_avg_win = recent_wins['ROI_Percent'].mean() if not recent_wins.empty else 0; k1, k2 = st.columns(2); k1.metric("최근 최고 수익률 (홈런)", f"+{r_max_win:.2f}%"); k2.metric("최근 평균 익절폭", f"+{r_avg_win:.2f}%");
+            st.divider()
+            st.markdown("### 3️⃣ 숙제 3: 홈런 본능 (불타기 & 홀딩)")
+            recent_wins = df_recent[df_recent['ROI_Percent'] > 0]
+            r_max_win = recent_wins['ROI_Percent'].max() if not recent_wins.empty else 0
+            r_avg_win = recent_wins['ROI_Percent'].mean() if not recent_wins.empty else 0
+            k1, k2 = st.columns(2)
+            k1.metric("최근 최고 수익률 (홈런)", f"+{r_max_win:.2f}%")
+            k2.metric("최근 평균 익절폭", f"+{r_avg_win:.2f}%")
             if r_max_win > 15: st.success("🔥 **[Perfect]** 역시 홈런 타자! 추세를 제대로 탔습니다.")
             elif r_max_win > 8: st.info("👍 **[Good]** 적당한 2루타입니다. 조금만 더 욕심내보세요.")
             else: st.warning("먹을 때 너무 짧게 먹습니다. (불타기 부족)")
-            st.divider(); score = 0; 
+            st.divider()
+            score = 0
             if r_avg_loss >= -4.5: score += 1
             if r_win_rate >= 40 or r_win_rate > o_win_rate: score += 1
             if r_max_win > 10: score += 1
-            final_msg = ""; 
+            final_msg = ""
             if score == 3: final_msg = "🏆 **[트레이딩 마스터]** 김 대리의 하산 허락이 임박했습니다!"
             elif score == 2: final_msg = "🏃 **[성장 중]** 아주 잘하고 계십니다. 하나만 더 고칩시다."
             else: final_msg = "🐢 **[분발하세요]** 아직 습관이 안 고쳐졌습니다. 원칙을 다시 읽으세요."
             st.subheader(f"종합 판정: {final_msg}")
 
-    # === TAB 8 (구 9): 손익 분포 ===
+    # === TAB 8: 손익 분포 ===
     with tab8:
-        st.subheader("🔔 손익 분포 (Profit/Loss Distribution)"); st.markdown("**\"왼쪽(손실)은 짧게, 오른쪽(수익)은 길게! 이것이 이상적인 곡선입니다.\"**"); bin_step = 2.5; df_dist = df.copy(); hist_chart = alt.Chart(df_dist).mark_bar().encode(x=alt.X('ROI_Percent', bin=alt.Bin(step=bin_step), title='수익률 구간 (%)'), y=alt.Y('count()', title='거래 횟수'), color=alt.condition(alt.datum.ROI_Percent > 0, alt.value("#00AA00"), alt.value("#FF4444")), tooltip=['count()', alt.Tooltip('ROI_Percent', bin=True, title='수익률 구간')]).properties(height=400); rule = alt.Chart(pd.DataFrame({'x': [0]})).mark_rule(color='black', strokeDash=[2,2]).encode(x='x'); st.altair_chart(hist_chart + rule, use_container_width=True); skew = df['ROI_Percent'].skew(); st.info(f"📊 **분포도 분석 (Skewness: {skew:.2f})**");
+        st.subheader("🔔 손익 분포 (Profit/Loss Distribution)")
+        st.markdown("**\"왼쪽(손실)은 짧게, 오른쪽(수익)은 길게! 이것이 이상적인 곡선입니다.\"**")
+        bin_step = 2.5; df_dist = df.copy()
+        hist_chart = alt.Chart(df_dist).mark_bar().encode(
+            x=alt.X('ROI_Percent', bin=alt.Bin(step=bin_step), title='수익률 구간 (%)'),
+            y=alt.Y('count()', title='거래 횟수'),
+            color=alt.condition(alt.datum.ROI_Percent > 0, alt.value("#00AA00"), alt.value("#FF4444")),
+            tooltip=['count()', alt.Tooltip('ROI_Percent', bin=True, title='수익률 구간')]
+        ).properties(height=400)
+        rule = alt.Chart(pd.DataFrame({'x': [0]})).mark_rule(color='black', strokeDash=[2,2]).encode(x='x')
+        st.altair_chart(hist_chart + rule, use_container_width=True)
+        skew = df['ROI_Percent'].skew()
+        st.info(f"📊 **분포도 분석 (Skewness: {skew:.2f})**")
         if skew > 0.5: st.success("✅ **[Positive Skew]** 아주 훌륭합니다! 꼬리가 오른쪽(수익)으로 길게 뻗은 이상적인 형태입니다.")
         elif skew < -0.5: st.error("🚨 **[Negative Skew]** 위험합니다! 왼쪽(손실) 꼬리가 더 깁니다. 큰 손실 한 방을 조심하세요.")
         else: st.warning("⚠️ **[Symmetric]** 수익과 손실 패턴이 비슷합니다. '손실은 짧게' 원칙을 더 지켜야 합니다.")
 
-    # === TAB 9 (구 10): 미너비니 시뮬레이터 ===
+    # === TAB 9: 미너비니 시뮬레이터 ===
     with tab9:
-        st.subheader("🔮 미너비니 시뮬레이터 (Result-Based Assumption Forecast)"); st.markdown("**\"목표 금액 달성까지, 몇 번의 매매가 남았을까요?\"**"); st.caption("출처: 마크 미너비니 <초수익 성장주 투자> '결과 기반 가정 예측'");
+        st.subheader("🔮 미너비니 시뮬레이터 (Result-Based Assumption Forecast)")
+        st.markdown("**\"목표 금액 달성까지, 몇 번의 매매가 남았을까요?\"**")
+        st.caption("출처: 마크 미너비니 <초수익 성장주 투자> '결과 기반 가정 예측'")
         with st.container(border=True):
-            st.markdown("#### 1️⃣ 가정 입력 (Assumptions)"); def_win_rate = float(win_rate) if not np.isnan(win_rate) else 40.0; def_avg_gain = float(avg_win) if not np.isnan(avg_win) and avg_win > 0 else 10.0; def_avg_loss = float(avg_loss) if not np.isnan(avg_loss) and avg_loss > 0 else 5.0; c_in1, c_in2, c_in3 = st.columns(3);
+            st.markdown("#### 1️⃣ 가정 입력 (Assumptions)")
+            def_win_rate = float(win_rate) if not np.isnan(win_rate) else 40.0
+            def_avg_gain = float(avg_win) if not np.isnan(avg_win) and avg_win > 0 else 10.0
+            def_avg_loss = float(avg_loss) if not np.isnan(avg_loss) and avg_loss > 0 else 5.0
+            c_in1, c_in2, c_in3 = st.columns(3)
             with c_in1: sim_portfolio = st.number_input("💰 현재 포트폴리오 (Seed)", value=16000000, step=1000000); sim_pos_size_pct = st.number_input("📊 포지션 규모 (%)", value=25.0, step=5.0) / 100
             with c_in2: sim_target_return = st.number_input("🎯 목표 수익률 (%)", value=40.0, step=5.0) / 100; sim_target_amt = sim_portfolio * sim_target_return; st.caption(f"목표 수익금: +{sim_target_amt:,.0f}원")
             with c_in3: sim_win_rate = st.number_input("🎯 승률 (Win Rate %)", value=def_win_rate, step=1.0) / 100; sim_avg_gain = st.number_input("📈 평균 수익 (Avg Gain %)", value=def_avg_gain, step=0.5) / 100; sim_avg_loss = st.number_input("📉 평균 손실 (Avg Loss %)", value=def_avg_loss, step=0.5) / 100
-        sim_pos_money = sim_portfolio * sim_pos_size_pct; sim_loss_rate = 1 - sim_win_rate; sim_net_exp_pct = (sim_win_rate * sim_avg_gain) - (sim_loss_rate * sim_avg_loss); sim_net_exp_money = sim_pos_money * sim_net_exp_pct; 
+        sim_pos_money = sim_portfolio * sim_pos_size_pct
+        sim_loss_rate = 1 - sim_win_rate
+        sim_net_exp_pct = (sim_win_rate * sim_avg_gain) - (sim_loss_rate * sim_avg_loss)
+        sim_net_exp_money = sim_pos_money * sim_net_exp_pct
         if sim_net_exp_money > 0: trades_needed = sim_target_amt / sim_net_exp_money
         else: trades_needed = float('inf')
-        st.divider(); st.markdown("#### 2️⃣ 시뮬레이션 결과 (Forecast Result)"); res_col1, res_col2 = st.columns(2);
-        with res_col1: st.write("📊 **거래별 기대 성과**"); st.markdown(f"* **포지션 투입금:** {sim_pos_money:,.0f}원\n* **수익 거래 시 평균 수익:** +{sim_pos_money * sim_avg_gain:,.0f}원\n* **손실 거래 시 평균 손실:** -{sim_pos_money * sim_avg_loss:,.0f}원\n* **손익비 (Reward/Risk):** {sim_avg_gain/sim_avg_loss:.2f} : 1")
-        with res_col2: st.write("💎 **최종 예측 (The Forecast)**"); 
-            if sim_net_exp_money > 0: st.metric("1회 거래당 순기대수익 (Edge)", f"{sim_net_exp_pct*100:.2f}% ({sim_net_exp_money:,.0f}원)", help="현재 승률과 손익비를 유지한다고 가정할 때, 한 번 매매할 때마다 계좌가 불어나는 평균 금액입니다."); st.success(f"### 🏁 목표 달성까지: **약 {int(trades_needed)+1} 회** 거래 필요"); st.caption("※ 현재의 승률과 손익비를 **꾸준히 유지한다**는 가정하에 계산된 결과입니다.")
-            else: st.error("🚨 **[경고] 기대값이 마이너스입니다!**"); st.markdown("현재 통계로는 아무리 매매해도 계좌가 줄어듭니다. **승률**을 높이거나 **손익비**를 개선하세요.")
+        st.divider()
+        st.markdown("#### 2️⃣ 시뮬레이션 결과 (Forecast Result)")
+        res_col1, res_col2 = st.columns(2)
+        with res_col1:
+            st.write("📊 **거래별 기대 성과**")
+            st.markdown(f"* **포지션 투입금:** {sim_pos_money:,.0f}원\n* **수익 거래 시 평균 수익:** +{sim_pos_money * sim_avg_gain:,.0f}원\n* **손실 거래 시 평균 손실:** -{sim_pos_money * sim_avg_loss:,.0f}원\n* **손익비 (Reward/Risk):** {sim_avg_gain/sim_avg_loss:.2f} : 1")
+        with res_col2:
+            st.write("💎 **최종 예측 (The Forecast)**")
+            if sim_net_exp_money > 0:
+                st.metric("1회 거래당 순기대수익 (Edge)", f"{sim_net_exp_pct*100:.2f}% ({sim_net_exp_money:,.0f}원)", help="현재 승률과 손익비를 유지한다고 가정할 때, 한 번 매매할 때마다 계좌가 불어나는 평균 금액입니다.")
+                st.success(f"### 🏁 목표 달성까지: **약 {int(trades_needed)+1} 회** 거래 필요")
+                st.caption("※ 현재의 승률과 손익비를 **꾸준히 유지한다**는 가정하에 계산된 결과입니다.")
+            else:
+                st.error("🚨 **[경고] 기대값이 마이너스입니다!**")
+                st.markdown("현재 통계로는 아무리 매매해도 계좌가 줄어듭니다. **승률**을 높이거나 **손익비**를 개선하세요.")
 
-    # === [NEW] TAB 10 (구 11): 배팅 규모 계산기 (Progressive Exposure) ===
+    # === TAB 10: 배팅 규모 계산기 (Progressive Exposure) ===
     with tab10:
         st.subheader("🚦 신호등 배팅 (Progressive Exposure)")
         st.markdown("**\"최근 전적에 따라 이번 배팅 금액을 정해드립니다. (신호등 시스템)\"**")
