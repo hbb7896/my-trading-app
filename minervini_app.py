@@ -99,7 +99,7 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
                 try:
                     clean_api_key = api_key.strip()
                     genai.configure(api_key=clean_api_key)
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-2.5-flash')
                     img = Image.open(uploaded_file)
                     
                     prompt = """
@@ -586,3 +586,4 @@ if not df.empty:
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
+
