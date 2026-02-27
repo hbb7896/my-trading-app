@@ -18,6 +18,33 @@ st.set_page_config(page_title="Trading Master Dashboard", page_icon="💎", layo
 # 2. 구글 시트 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# --- 설정값 & 상태 영구 저장/불러오기 (Worksheet 1 활용) ---
+def load_status():
+    """구글 시트 두 번째 탭(1)에서 설정과 기록을 불러옵니다."""
+    try:
+        df_config = conn.read(worksheet=1, ttl=0)
+        if df_config.empty:
+            return 20000000, 5000000, [] 
+        row = df_config.iloc[0]
+        equity = int(row.get('Total_Equity', 20000000))
+        max_pos = int(row.get('Max_Position', 5000000))
+        history_str = str(row.get('History', ''))
+        
+        if history_str and history_str != 'nan': history = history_str.split(',')
+        else: history = []
+        return equity, max_pos, history
+    except Exception:
+        return 20000000, 5000000, []
+
+def save_status(equity, max_pos, history):
+    """설정과 기록을 구글 시트 두 번째 탭(1)에 저장합니다."""
+    try:
+        history_str = ",".join(history)
+        new_df = pd.DataFrame([{'Total_Equity': equity, 'Max_Position': max_pos, 'History': history_str}])
+        conn.update(worksheet=1, data=new_df)
+    except Exception as e:
+        st.error(f"저장 실패: {e}")
+
 # --- 설정값 불러오기 ---
 @st.cache_data(ttl=0)
 def load_settings():
@@ -47,13 +74,9 @@ REQUIRED_COLUMNS = [
 def load_data():
     try:
         df = conn.read(worksheet=0, ttl=0)
-        
-        if df.empty:
-             return pd.DataFrame(columns=REQUIRED_COLUMNS)
-        
+        if df.empty: return pd.DataFrame(columns=REQUIRED_COLUMNS)
         df = df.dropna(subset=['Date'])
         
-        # 숫자 변환
         num_cols = ['P_L_Amount', 'ROI_Percent', 'Buy_Amount', 'Sell_Amount']
         for col in num_cols:
             if col in df.columns:
@@ -61,8 +84,6 @@ def load_data():
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-        
-        # 데이터 복구 및 초기화
         if 'Buy_Amount' not in df.columns: df['Buy_Amount'] = 0.0
         if 'Sell_Amount' not in df.columns: df['Sell_Amount'] = 0.0
         
@@ -72,7 +93,6 @@ def load_data():
 
         for col in ['Mistake_Tags', 'Emotion', 'Discipline', 'Memo']:
             if col not in df.columns: df[col] = None
-        
         return df
     except:
         return pd.DataFrame(columns=REQUIRED_COLUMNS)
@@ -81,13 +101,13 @@ df = load_data()
 krx_list = get_krx_list() 
 
 # ==========================================
-# [NEW] AI 영수증 캡쳐 분석 모듈 (수익률 자동계산 천재 버전)
+# [UPDATED] AI 영수증 캡쳐 분석 모듈 (수익률 자동계산 천재 버전)
 # ==========================================
 st.sidebar.header("📸 AI 영수증 자동 입력")
 with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
     st.markdown("수익/손실 화면을 올리면 알아서 타이핑해드립니다.")
-    api_key = st.text_input("Gemini API Key (최초 1회 입력)", type="password")
-    uploaded_file = st.file_uploader("증권사 캡쳐 이미지", type=['png', 'jpg', 'jpeg'])
+    api_key = st.text_input("Gemini API Key (최초 1회 입력)", type="password", key="sidebar_api")
+    uploaded_file = st.file_uploader("증권사 캡쳐 이미지", type=['png', 'jpg', 'jpeg'], key="sidebar_uploader")
     
     if st.button("🔍 데이터 추출하기", use_container_width=True):
         if not api_key:
@@ -99,6 +119,7 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
                 try:
                     clean_api_key = api_key.strip()
                     genai.configure(api_key=clean_api_key)
+                    # 에러 해결: 버전을 2.5로 업데이트!
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     img = Image.open(uploaded_file)
                     
@@ -226,10 +247,10 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 10개
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
+    # 탭 구성: 총 11개 (AI 차트 복기 추가)
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "🔮 미너비니 시뮬레이터", "🚦 신호등 배팅"
+        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "🔮 미너비니 시뮬레이터", "🚦 신호등 배팅", "📈 AI 차트 복기"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -584,6 +605,59 @@ if not df.empty:
         else:
             st.info(f"### ⚪ **[준비] 시작 모드**\n**\"첫 진입입니다. 가볍게 정찰병(1/4)부터 보냅시다.\"**\n\n# **{rec_money:,.0f} 원** 투입\n(최대 배팅금의 **25%**)")
 
+    # === [NEW] TAB 11: AI 차트 복기 (미너비니 빙의) ===
+    with tab11:
+        st.subheader("📈 AI 차트 복기 (마크 미너비니 1:1 과외)")
+        st.markdown("**\"매수(B)와 매도(S) 타점이 찍힌 차트를 올리시면, 마크 미너비니가 팩트 폭행을 해드립니다.\"**")
+        
+        with st.container(border=True):
+            api_key_tab11 = st.text_input("🔑 Gemini API Key (사이드바에 입력하셨다면 안 넣으셔도 됩니다.)", 
+                                          value=st.session_state.get('sidebar_api', ''), type="password", key="tab11_api")
+            
+            uploaded_chart = st.file_uploader("📸 자동일지차트(B,S 마크 포함) 업로드", type=['png', 'jpg', 'jpeg'], key="tab11_uploader")
+            
+            if st.button("🔥 미너비니 등판 (차트 분석 시작)", use_container_width=True):
+                if not api_key_tab11:
+                    st.error("Gemini API Key를 입력해주세요!")
+                elif not uploaded_chart:
+                    st.error("차트 이미지를 올려주세요!")
+                else:
+                    with st.spinner("마크 미너비니가 사장님의 차트를 째려보고 있습니다... 🧐"):
+                        try:
+                            clean_api = api_key_tab11.strip()
+                            genai.configure(api_key=clean_api)
+                            model = genai.GenerativeModel('gemini-2.5-flash')
+                            chart_img = Image.open(uploaded_chart)
+                            
+                            prompt_minervini = """
+                            당신은 세계적인 주식 트레이더 '마크 미너비니(Mark Minervini)'입니다.
+                            첨부된 한국 주식 차트 이미지에는 사용자의 매수(B)와 매도(S) 타점이 표시되어 있습니다.
+                            당신의 SEPA 전략, VCP(변동성 축소 패턴) 이론, 그리고 엄격한 리스크 관리 철학을 바탕으로 이 타점들을 냉철하게 평가해주세요.
+                            
+                            다음 양식에 맞춰 마크다운으로 답변해주세요. 친절할 필요 없습니다. 거만하고 확신에 찬 전설적인 트레이더의 말투를 사용하세요.
+
+                            ### 📌 종목 및 전반적인 차트 분석 (Stage Analysis)
+                            (이평선 배열, 추세, VCP 여부 등 차트의 뼈대를 분석)
+
+                            ### 🟢 B(매수) 타점 평가
+                            (돌파 여부, 거래량, 진입 타이밍의 적절성을 날카롭게 지적)
+
+                            ### 🔴 S(매도) 타점 평가
+                            (수익을 길게 가져갔는지, 너무 일찍 팔았는지, 손절선은 지켰는지 팩트 폭행)
+
+                            ### 🏆 미너비니의 최종 등급 (S, A, B, C, F 중 택 1) 및 한줄평
+                            (총평 및 개선점)
+                            """
+                            
+                            response = model.generate_content([prompt_minervini, chart_img])
+                            
+                            st.success("✅ 분석 완료! 아래 피드백을 뼈에 새기십시오.")
+                            st.markdown("---")
+                            st.markdown(response.text)
+                            
+                        except Exception as e:
+                            st.error("🚨 차트 분석 실패! 이미지가 흐리거나 에러가 발생했습니다.")
+                            st.write(f"에러 상세: {e}")
+
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
-
