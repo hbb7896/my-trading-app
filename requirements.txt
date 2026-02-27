@@ -1,8 +1,9 @@
-pandas
 streamlit
-st-gsheets-connection
+pandas
+numpy
 yfinance
 finance-datareader
-matplotlib
-lxml
-openpyxl
+altair
+st-gsheets-connection
+google-generativeai
+pillow
