@@ -7,3 +7,4 @@ altair
 st-gsheets-connection
 google-generativeai
 pillow
+matplotlib
