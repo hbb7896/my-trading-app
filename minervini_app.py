@@ -81,7 +81,7 @@ df = load_data()
 krx_list = get_krx_list() 
 
 # ==========================================
-# [NEW] AI 영수증 캡쳐 분석 모듈 추가
+# [NEW] AI 영수증 캡쳐 분석 모듈 (수익률 자동계산 천재 버전)
 # ==========================================
 st.sidebar.header("📸 AI 영수증 자동 입력")
 with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
@@ -97,28 +97,56 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
         else:
             with st.spinner("김 프로가 캡쳐를 분석 중입니다..."):
                 try:
-                    genai.configure(api_key=api_key)
+                    clean_api_key = api_key.strip()
+                    genai.configure(api_key=clean_api_key)
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     img = Image.open(uploaded_file)
+                    
                     prompt = """
-                    당신은 주식 매매 내역을 분석하는 AI 트레이딩 보조입니다.
-                    이미지에서 '종목명', '매수금액(원)', '수익률(%)'을 찾아주세요.
-                    결과는 반드시 아래 JSON 형식으로만 출력하세요. 다른 말은 절대 추가하지 마세요.
-                    {"ticker": "삼성전자", "buy_amount": 1000000, "roi": 5.23, "memo": "AI 스캔 완료"}
-                    숫자를 찾을 수 없거나 모호하면 0으로 표시하세요.
+                    당신은 한국 주식 증권사 앱의 캡쳐 화면을 분석하는 최고 수준의 AI 트레이딩 보조입니다.
+                    이미지에서 다음 3가지 데이터를 반드시 추출하세요.
+                    1. 종목명 (예: 두산퓨얼셀)
+                    2. 매수금액 (콤마(,)를 모두 제거한 순수 숫자만. 예: 2991450)
+                    3. 수익률(%) (콤마(,) 및 % 기호를 제거한 순수 숫자만. 예: 0.04)
+
+                    [중요 규칙 - 수익률이 없을 때]
+                    화면에 '수익률(%)'이 직접 적혀있지 않고 '손익금액'과 '매수금액'만 있다면, 당신이 직접 수익률을 계산하세요!
+                    * 계산식: (손익금액 / 매수금액) * 100
+                    * 소수점 셋째 자리에서 반올림하여 둘째 자리까지만 출력하세요.
+                    
+                    결과는 반드시 아래 JSON 형식으로만 출력하세요. 다른 설명은 절대 추가하지 마세요.
+                    {"ticker": "두산퓨얼셀", "buy_amount": 2991450, "roi": 0.04, "memo": "AI 스캔 완료"}
                     """
                     response = model.generate_content([prompt, img])
-                    result_text = response.text.replace("```json", "").replace("```", "").strip()
+                    
+                    result_text = response.text.strip()
+                    if result_text.startswith("```json"):
+                        result_text = result_text[7:]
+                    if result_text.startswith("```"):
+                        result_text = result_text[3:]
+                    if result_text.endswith("```"):
+                        result_text = result_text[:-3]
+                    result_text = result_text.strip()
+                    
                     data = json.loads(result_text)
                     
-                    # 분석된 데이터를 session_state에 임시 보관
                     st.session_state.ai_ticker = data.get('ticker', '')
-                    st.session_state.ai_buy_amt = int(data.get('buy_amount', 0))
-                    st.session_state.ai_roi = float(data.get('roi', 0.0))
+                    buy_amt_raw = str(data.get('buy_amount', 0)).replace(',', '')
+                    st.session_state.ai_buy_amt = int(float(buy_amt_raw))
+                    
+                    roi_raw = str(data.get('roi', 0.0)).replace(',', '').replace('%', '')
+                    st.session_state.ai_roi = float(roi_raw)
+                    
                     st.session_state.ai_memo = data.get('memo', '📸 AI 분석 자동 입력')
                     st.success("✅ 분석 성공! 아래 폼에 입력되었습니다.")
+                    
                 except Exception as e:
-                    st.error("해독 실패! 이미지가 흐리거나 텍스트를 찾을 수 없습니다.")
+                    st.error("🚨 해독 실패! AI가 반환한 데이터를 이해하지 못했습니다.")
+                    with st.expander("🛠️ 김 프로 디버깅 (에러 원인 보기)"):
+                        st.write(f"시스템 에러: {e}")
+                        if 'result_text' in locals():
+                            st.write("AI가 뱉은 원본 데이터:", result_text)
+                        st.write("조치: API 키를 다시 확인하시거나 조금 더 선명하게 캡쳐해보세요.")
 
 # AI가 뽑아둔 데이터가 있으면 가져오고, 없으면 기본값 세팅
 def_ticker = st.session_state.get('ai_ticker', '')
