@@ -119,7 +119,6 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
                 try:
                     clean_api_key = api_key.strip()
                     genai.configure(api_key=clean_api_key)
-                    # 에러 해결: 버전을 2.5로 업데이트!
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     img = Image.open(uploaded_file)
                     
@@ -646,7 +645,8 @@ if not df.empty:
                 render_market_status(c2, "🏢 KOSPI (코스피 - 대형주)", ks_close, ks_21, ks_50, ks_dist)
 
                 st.divider()
-                st.info("💡 **분배일(Distribution Day)이란?** 지수가 전일 대비 0.2% 이상 하락하면서 동시에 거래량이 전일보다 증가한 날입니다. 기관 투자자들이 주식을 팔고 나갔다는 강력한 징후이며, 최근 4~5주(25일) 내에 분배일이 5~6개가 누적되면 시장의 천장(Top)으로 간주합니다.")
+                # Markdown 취소선(~) 오류 방지를 위해 하이픈(-)으로 교체 완료
+                st.info("💡 **분배일(Distribution Day)이란?** 지수가 전일 대비 0.2% 이상 하락하면서 동시에 거래량이 전일보다 증가한 날입니다. 기관 투자자들이 주식을 팔고 나갔다는 강력한 징후이며, 최근 4-5주(25일) 내에 분배일이 5-6개가 누적되면 시장의 천장(Top)으로 간주합니다.")
 
             except Exception as e:
                 st.error("시장 데이터를 불러오는 데 실패했습니다. 잠시 후 다시 시도해주세요.")
