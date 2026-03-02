@@ -7,6 +7,7 @@ import altair as alt
 from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 import random
+# [NEW] AI 분석을 위한 라이브러리 추가
 import json
 import google.generativeai as genai
 from PIL import Image
@@ -226,9 +227,10 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
+    # 탭 구성: 시장 풍향계 추가하여 총 12개
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "🔮 미너비니 시뮬레이터", "🚦 신호등 배팅", "📈 AI 차트 복기"
+        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "🔮 미너비니 시뮬레이터", "🚦 신호등 배팅", "📈 AI 차트 복기", "🚨 시장 풍향계"
     ])
     
     df['Year'] = df['Date'].dt.year; df['YearMonth'] = df['Date'].dt.strftime('%Y-%m')
@@ -385,7 +387,7 @@ if not df.empty:
         elif current_status == "RED": st.error(f"### 🔴 **[빨간불] 방어 모드 (25%)**\n# **{rec_money:,.0f} 원** 투입")
         else: st.info(f"### ⚪ **[준비] 정찰 모드 (25%)**\n# **{rec_money:,.0f} 원** 투입")
 
-    # === [UPDATED] TAB 11: AI 차트 복기 (미너비니 빙의) - 에러 방지 강화 ===
+    # === TAB 11: AI 차트 복기 ===
     with tab11:
         st.subheader("📈 AI 차트 복기 (마크 미너비니 1:1 과외)")
         st.markdown("**\"매수(B)와 매도(S) 타점이 찍힌 차트를 올리시면, 마크 미너비니가 분석해 드립니다.\"**")
@@ -409,7 +411,6 @@ if not df.empty:
                             model = genai.GenerativeModel('gemini-2.5-flash')
                             chart_img = Image.open(uploaded_chart)
                             
-                            # 🔥 AI 윤리 필터에 걸리지 않도록 프롬프트 순화 (뼈는 때리되 선은 넘지 않게)
                             prompt_minervini = """
                             당신은 세계적인 주식 트레이더 '마크 미너비니(Mark Minervini)'입니다.
                             첨부된 한국 주식 차트 이미지에는 사용자의 매수(B)와 매도(S) 타점이 표시되어 있습니다.
@@ -432,7 +433,6 @@ if not df.empty:
                             
                             response = model.generate_content([prompt_minervini, chart_img])
                             
-                            # 응답이 비어있는지(안전 필터 통과 실패 등) 확인
                             if not response.parts:
                                 st.error("🚨 AI가 답변을 거부했습니다. (너무 강한 비판을 요구해서 구글 안전 필터에 걸렸을 수 있습니다. 사진을 다시 올려보세요.)")
                             else:
@@ -443,6 +443,85 @@ if not df.empty:
                         except Exception as e:
                             st.error("🚨 차트 분석 실패! 이미지가 흐리거나 에러가 발생했습니다.")
                             st.write(f"에러 상세: {e}")
+
+    # === [NEW] TAB 12: 시장 풍향계 (Market Compass) ===
+    with tab12:
+        st.subheader("🚨 시장 풍향계 (Market Compass)")
+        st.markdown("**\"시장을 이기려 하지 마라. 큰손들이 나갈 때는 우리도 도망쳐야 한다.\"** - 윌리엄 오닐")
+
+        with st.spinner("시장 체력 스캔 중... (잠시만 기다려주세요)"):
+            try:
+                # 데이터 150일치 가져오기 (이평선 계산용)
+                start_date = datetime.today() - timedelta(days=150)
+                kq = fdr.DataReader('KQ11', start_date)
+                ks = fdr.DataReader('KS11', start_date)
+
+                def analyze_index(df, name):
+                    # 이동평균선 계산
+                    df['21EMA'] = df['Close'].ewm(span=21, adjust=False).mean()
+                    df['50SMA'] = df['Close'].rolling(window=50).mean()
+                    
+                    # 전일 대비 데이터 계산
+                    df['Prev_Close'] = df['Close'].shift(1)
+                    df['Prev_Vol'] = df['Volume'].shift(1)
+                    df['Change_Pct'] = (df['Close'] - df['Prev_Close']) / df['Prev_Close'] * 100
+
+                    # 윌리엄 오닐 분배일 조건: 0.2% 이상 하락 & 거래량 증가
+                    df['Dist_Day'] = ((df['Change_Pct'] <= -0.2) & (df['Volume'] > df['Prev_Vol'])).astype(int)
+
+                    # 최근 25거래일 기준 분배일 합계
+                    last_25 = df.tail(25)
+                    dist_count = last_25['Dist_Day'].sum()
+                    
+                    current_close = df['Close'].iloc[-1]
+                    current_21 = df['21EMA'].iloc[-1]
+                    current_50 = df['50SMA'].iloc[-1]
+
+                    return current_close, current_21, current_50, dist_count
+
+                kq_close, kq_21, kq_50, kq_dist = analyze_index(kq, "코스닥")
+                ks_close, ks_21, ks_50, ks_dist = analyze_index(ks, "코스피")
+
+                st.markdown("### 📊 현재 시장 상태 (최근 25거래일 기준)")
+                c1, c2 = st.columns(2)
+
+                def render_market_status(col, title, close, ema21, sma50, dist):
+                    with col:
+                        with st.container(border=True):
+                            st.markdown(f"#### {title}")
+                            st.metric("현재 지수", f"{close:,.2f}")
+
+                            # 분배일 평가 로직
+                            if dist >= 5: dist_status = "🔴 **위험** (분배일 5개 이상)"
+                            elif dist >= 3: dist_status = "🟡 **주의** (분배일 3~4개)"
+                            else: dist_status = "🟢 **안전** (분배일 2개 이하)"
+
+                            # 이평선 추세 평가 로직
+                            if close > ema21 and close > sma50: trend_status = "🟢 **상승 추세** (21EMA, 50SMA 위)"
+                            elif close < sma50: trend_status = "🔴 **하락 추세** (50SMA 붕괴)"
+                            else: trend_status = "🟡 **단기 조정** (21EMA 아래, 50SMA 위)"
+
+                            st.write(f"**카운트:** 누적 분배일 {dist}일 → {dist_status}")
+                            st.write(f"**추세선:** {trend_status}")
+                            st.divider()
+
+                            # 윌리엄 오닐 & 미너비니 종합 평가
+                            if dist >= 5 or close < sma50:
+                                st.error("🚨 **[방어 모드]**\n지수가 꺾였습니다. 현금 비중을 늘리고 신규 매수를 멈추세요!")
+                            elif dist >= 3 or close < ema21:
+                                st.warning("⚠️ **[경계 모드]**\n시장이 지쳐갑니다. 타점을 보수적으로 잡고 비중을 절반으로 줄이세요.")
+                            else:
+                                st.success("🔥 **[공격 모드]**\n시장이 강세입니다! 주도주 돌파 매매에 적극 참여하세요.")
+
+                render_market_status(c1, "🚀 KOSDAQ (코스닥 - 성장주)", kq_close, kq_21, kq_50, kq_dist)
+                render_market_status(c2, "🏢 KOSPI (코스피 - 대형주)", ks_close, ks_21, ks_50, ks_dist)
+
+                st.divider()
+                st.info("💡 **분배일(Distribution Day)이란?** 지수가 전일 대비 0.2% 이상 하락하면서 동시에 거래량이 전일보다 증가한 날입니다. 기관 투자자들이 주식을 팔고 나갔다는 강력한 징후이며, 최근 4~5주(25일) 내에 분배일이 5~6개가 누적되면 시장의 천장(Top)으로 간주합니다.")
+
+            except Exception as e:
+                st.error("시장 데이터를 불러오는 데 실패했습니다. 장 마감 후 데이터 갱신 중일 수 있습니다.")
+                st.write(f"에러 상세: {e}")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
