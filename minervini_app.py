@@ -227,7 +227,6 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 시장 풍향계 추가하여 총 12개
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
         "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "🔮 미너비니 시뮬레이터", "🚦 신호등 배팅", "📈 AI 차트 복기", "🚨 시장 풍향계"
@@ -444,19 +443,28 @@ if not df.empty:
                             st.error("🚨 차트 분석 실패! 이미지가 흐리거나 에러가 발생했습니다.")
                             st.write(f"에러 상세: {e}")
 
-    # === [NEW] TAB 12: 시장 풍향계 (Market Compass) ===
+    # === [UPDATED] TAB 12: 시장 풍향계 (에러 방지용 yfinance 전환) ===
     with tab12:
         st.subheader("🚨 시장 풍향계 (Market Compass)")
         st.markdown("**\"시장을 이기려 하지 마라. 큰손들이 나갈 때는 우리도 도망쳐야 한다.\"** - 윌리엄 오닐")
 
         with st.spinner("시장 체력 스캔 중... (잠시만 기다려주세요)"):
             try:
-                # 데이터 150일치 가져오기 (이평선 계산용)
-                start_date = datetime.today() - timedelta(days=150)
-                kq = fdr.DataReader('KQ11', start_date)
-                ks = fdr.DataReader('KS11', start_date)
+                # 데이터 150일치 가져오기
+                start_date = (datetime.today() - timedelta(days=150)).strftime('%Y-%m-%d')
+                
+                # 🚀 LOGOUT 에러 원인이었던 fdr 대신 글로벌 yfinance 사용!
+                kq = yf.Ticker('^KQ11').history(start=start_date) # 코스닥
+                ks = yf.Ticker('^KS11').history(start=start_date) # 코스피
+                
+                # 타임존 제거 (에러 방지용)
+                if not kq.empty: kq.index = kq.index.tz_localize(None)
+                if not ks.empty: ks.index = ks.index.tz_localize(None)
 
                 def analyze_index(df, name):
+                    if df.empty:
+                        return 0, 0, 0, 0
+                    
                     # 이동평균선 계산
                     df['21EMA'] = df['Close'].ewm(span=21, adjust=False).mean()
                     df['50SMA'] = df['Close'].rolling(window=50).mean()
@@ -489,6 +497,10 @@ if not df.empty:
                     with col:
                         with st.container(border=True):
                             st.markdown(f"#### {title}")
+                            if close == 0:
+                                st.warning("데이터 로딩 지연")
+                                return
+                                
                             st.metric("현재 지수", f"{close:,.2f}")
 
                             # 분배일 평가 로직
@@ -520,7 +532,7 @@ if not df.empty:
                 st.info("💡 **분배일(Distribution Day)이란?** 지수가 전일 대비 0.2% 이상 하락하면서 동시에 거래량이 전일보다 증가한 날입니다. 기관 투자자들이 주식을 팔고 나갔다는 강력한 징후이며, 최근 4~5주(25일) 내에 분배일이 5~6개가 누적되면 시장의 천장(Top)으로 간주합니다.")
 
             except Exception as e:
-                st.error("시장 데이터를 불러오는 데 실패했습니다. 장 마감 후 데이터 갱신 중일 수 있습니다.")
+                st.error("시장 데이터를 불러오는 데 실패했습니다. 잠시 후 다시 시도해주세요.")
                 st.write(f"에러 상세: {e}")
 
 else:
