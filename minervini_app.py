@@ -246,7 +246,7 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 10개 (시뮬레이터, 신호등 삭제 및 AI 복기, 시장 풍향계 이동)
+    # 탭 구성: 총 10개
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
         "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "📈 AI 차트 복기", "🚨 시장 풍향계"
@@ -559,7 +559,7 @@ if not df.empty:
                             st.error("🚨 차트 분석 실패! 이미지가 흐리거나 에러가 발생했습니다.")
                             st.write(f"에러 상세: {e}")
 
-    # === TAB 10: 시장 풍향계 (Market Compass) ===
+    # === [UPDATED] TAB 10: 시장 풍향계 (Market Compass) ===
     with tab10:
         st.subheader("🚨 시장 풍향계 (Market Compass)")
         st.markdown("**\"시장을 이기려 하지 마라. 큰손들이 나갈 때는 우리도 도망쳐야 한다.\"** - 윌리엄 오닐")
@@ -569,13 +569,15 @@ if not df.empty:
                 # 데이터 150일치 가져오기
                 start_date = (datetime.today() - timedelta(days=150)).strftime('%Y-%m-%d')
                 
-                # fdr 대신 글로벌 yfinance 사용
-                kq = yf.Ticker('^KQ11').history(start=start_date) # 코스닥
+                # fdr 대신 글로벌 yfinance 사용 (코스닥 제거, S&P500 & 나스닥 추가)
                 ks = yf.Ticker('^KS11').history(start=start_date) # 코스피
+                spx = yf.Ticker('^GSPC').history(start=start_date) # S&P 500
+                ndx = yf.Ticker('^IXIC').history(start=start_date) # 나스닥
                 
                 # 타임존 제거 (에러 방지용)
-                if not kq.empty: kq.index = kq.index.tz_localize(None)
                 if not ks.empty: ks.index = ks.index.tz_localize(None)
+                if not spx.empty: spx.index = spx.index.tz_localize(None)
+                if not ndx.empty: ndx.index = ndx.index.tz_localize(None)
 
                 def analyze_index(df, name):
                     if df.empty:
@@ -603,11 +605,13 @@ if not df.empty:
 
                     return current_close, current_21, current_50, dist_count
 
-                kq_close, kq_21, kq_50, kq_dist = analyze_index(kq, "코스닥")
                 ks_close, ks_21, ks_50, ks_dist = analyze_index(ks, "코스피")
+                spx_close, spx_21, spx_50, spx_dist = analyze_index(spx, "S&P 500")
+                ndx_close, ndx_21, ndx_50, ndx_dist = analyze_index(ndx, "나스닥")
 
                 st.markdown("### 📊 현재 시장 상태 (최근 25거래일 기준)")
-                c1, c2 = st.columns(2)
+                # 코스피, S&P 500, 나스닥 3개로 레이아웃 변경
+                c1, c2, c3 = st.columns(3)
 
                 def render_market_status(col, title, close, ema21, sma50, dist):
                     with col:
@@ -641,8 +645,9 @@ if not df.empty:
                             else:
                                 st.success("🔥 **[공격 모드]**\n시장이 강세입니다! 주도주 돌파 매매에 적극 참여하세요.")
 
-                render_market_status(c1, "🚀 KOSDAQ (코스닥 - 성장주)", kq_close, kq_21, kq_50, kq_dist)
-                render_market_status(c2, "🏢 KOSPI (코스피 - 대형주)", ks_close, ks_21, ks_50, ks_dist)
+                render_market_status(c1, "🏢 KOSPI (한국 대형주)", ks_close, ks_21, ks_50, ks_dist)
+                render_market_status(c2, "🇺🇸 S&P 500 (미국 대형주)", spx_close, spx_21, spx_50, spx_dist)
+                render_market_status(c3, "🚀 NASDAQ (미국 기술주)", ndx_close, ndx_21, ndx_50, ndx_dist)
 
                 st.divider()
                 # Markdown 취소선(~) 오류 방지를 위해 하이픈(-)으로 교체 완료
