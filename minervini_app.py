@@ -119,6 +119,7 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
                 try:
                     clean_api_key = api_key.strip()
                     genai.configure(api_key=clean_api_key)
+                    # 에러 해결: 버전을 2.5로 업데이트!
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     img = Image.open(uploaded_file)
                     
@@ -246,7 +247,7 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 10개
+    # 탭 구성: 총 10개 (시뮬레이터, 신호등 삭제 및 AI 복기, 시장 풍향계 이동)
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
         "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "📈 AI 차트 복기", "🚨 시장 풍향계"
@@ -559,7 +560,7 @@ if not df.empty:
                             st.error("🚨 차트 분석 실패! 이미지가 흐리거나 에러가 발생했습니다.")
                             st.write(f"에러 상세: {e}")
 
-    # === [UPDATED] TAB 10: 시장 풍향계 (Market Compass) ===
+    # === [UPDATED] TAB 10: 시장 풍향계 (Market Compass) - FTD 추가 ===
     with tab10:
         st.subheader("🚨 시장 풍향계 (Market Compass)")
         st.markdown("**\"시장을 이기려 하지 마라. 큰손들이 나갈 때는 우리도 도망쳐야 한다.\"** - 윌리엄 오닐")
@@ -569,7 +570,7 @@ if not df.empty:
                 # 데이터 150일치 가져오기
                 start_date = (datetime.today() - timedelta(days=150)).strftime('%Y-%m-%d')
                 
-                # fdr 대신 글로벌 yfinance 사용 (코스닥 제거, S&P500 & 나스닥 추가)
+                # fdr 대신 글로벌 yfinance 사용
                 ks = yf.Ticker('^KS11').history(start=start_date) # 코스피
                 spx = yf.Ticker('^GSPC').history(start=start_date) # S&P 500
                 ndx = yf.Ticker('^IXIC').history(start=start_date) # 나스닥
@@ -581,7 +582,7 @@ if not df.empty:
 
                 def analyze_index(df, name):
                     if df.empty:
-                        return 0, 0, 0, 0
+                        return 0, 0, 0, 0, "데이터 없음"
                     
                     # 이동평균선 계산
                     df['21EMA'] = df['Close'].ewm(span=21, adjust=False).mean()
@@ -592,28 +593,35 @@ if not df.empty:
                     df['Prev_Vol'] = df['Volume'].shift(1)
                     df['Change_Pct'] = (df['Close'] - df['Prev_Close']) / df['Prev_Close'] * 100
 
-                    # 윌리엄 오닐 분배일 조건: 0.2% 이상 하락 & 거래량 증가
+                    # 1. 윌리엄 오닐 분배일 조건: -0.2% 이상 하락 & 거래량 증가
                     df['Dist_Day'] = ((df['Change_Pct'] <= -0.2) & (df['Volume'] > df['Prev_Vol'])).astype(int)
+                    
+                    # 2. 팔로스루데이(FTD) 간이 로직: 1.2% 이상 강한 상승 & 거래량 증가
+                    df['FTD'] = ((df['Change_Pct'] >= 1.2) & (df['Volume'] > df['Prev_Vol']))
 
                     # 최근 25거래일 기준 분배일 합계
                     last_25 = df.tail(25)
                     dist_count = last_25['Dist_Day'].sum()
                     
+                    # 최근 팔로스루데이 날짜 추출
+                    ftd_dates = df[df['FTD']].index
+                    last_ftd = ftd_dates[-1].strftime('%Y-%m-%d') if len(ftd_dates) > 0 else "최근 없음"
+                    
                     current_close = df['Close'].iloc[-1]
                     current_21 = df['21EMA'].iloc[-1]
                     current_50 = df['50SMA'].iloc[-1]
 
-                    return current_close, current_21, current_50, dist_count
+                    return current_close, current_21, current_50, dist_count, last_ftd
 
-                ks_close, ks_21, ks_50, ks_dist = analyze_index(ks, "코스피")
-                spx_close, spx_21, spx_50, spx_dist = analyze_index(spx, "S&P 500")
-                ndx_close, ndx_21, ndx_50, ndx_dist = analyze_index(ndx, "나스닥")
+                # 리턴값 5개로 매칭 (ftd 추가)
+                ks_close, ks_21, ks_50, ks_dist, ks_ftd = analyze_index(ks, "코스피")
+                spx_close, spx_21, spx_50, spx_dist, spx_ftd = analyze_index(spx, "S&P 500")
+                ndx_close, ndx_21, ndx_50, ndx_dist, ndx_ftd = analyze_index(ndx, "나스닥")
 
                 st.markdown("### 📊 현재 시장 상태 (최근 25거래일 기준)")
-                # 코스피, S&P 500, 나스닥 3개로 레이아웃 변경
                 c1, c2, c3 = st.columns(3)
 
-                def render_market_status(col, title, close, ema21, sma50, dist):
+                def render_market_status(col, title, close, ema21, sma50, dist, ftd):
                     with col:
                         with st.container(border=True):
                             st.markdown(f"#### {title}")
@@ -635,6 +643,7 @@ if not df.empty:
 
                             st.write(f"**카운트:** 누적 분배일 {dist}일 → {dist_status}")
                             st.write(f"**추세선:** {trend_status}")
+                            st.write(f"**최근 FTD:** {ftd}") # 팔로스루데이 출력 추가
                             st.divider()
 
                             # 윌리엄 오닐 & 미너비니 종합 평가
@@ -645,13 +654,13 @@ if not df.empty:
                             else:
                                 st.success("🔥 **[공격 모드]**\n시장이 강세입니다! 주도주 돌파 매매에 적극 참여하세요.")
 
-                render_market_status(c1, "🏢 KOSPI (한국 대형주)", ks_close, ks_21, ks_50, ks_dist)
-                render_market_status(c2, "🇺🇸 S&P 500 (미국 대형주)", spx_close, spx_21, spx_50, spx_dist)
-                render_market_status(c3, "🚀 NASDAQ (미국 기술주)", ndx_close, ndx_21, ndx_50, ndx_dist)
+                # 함수 호출 시 ftd 인자 추가
+                render_market_status(c1, "🏢 KOSPI (한국 대형주)", ks_close, ks_21, ks_50, ks_dist, ks_ftd)
+                render_market_status(c2, "🇺🇸 S&P 500 (미국 대형주)", spx_close, spx_21, spx_50, spx_dist, spx_ftd)
+                render_market_status(c3, "🚀 NASDAQ (미국 기술주)", ndx_close, ndx_21, ndx_50, ndx_dist, ndx_ftd)
 
                 st.divider()
-                # Markdown 취소선(~) 오류 방지를 위해 하이픈(-)으로 교체 완료
-                st.info("💡 **분배일(Distribution Day)이란?** 지수가 전일 대비 0.2% 이상 하락하면서 동시에 거래량이 전일보다 증가한 날입니다. 기관 투자자들이 주식을 팔고 나갔다는 강력한 징후이며, 최근 4-5주(25일) 내에 분배일이 5-6개가 누적되면 시장의 천장(Top)으로 간주합니다.")
+                st.info("💡 **분배일(Distribution Day):** 지수가 -0.2% 이상 하락하면서 동시에 거래량이 전일보다 증가한 날입니다. 5-6개가 누적되면 시장 천장(Top)으로 간주합니다.\n\n💡 **팔로스루데이(Follow-Through Day):** 하락장 속에서 지수가 +1.2% 이상 강하게 상승하며 거래량이 전일보다 증가한 날입니다. 새로운 상승장(Uptrend)의 강력한 신호입니다.")
 
             except Exception as e:
                 st.error("시장 데이터를 불러오는 데 실패했습니다. 잠시 후 다시 시도해주세요.")
