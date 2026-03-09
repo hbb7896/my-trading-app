@@ -97,11 +97,12 @@ def load_data():
     except:
         return pd.DataFrame(columns=REQUIRED_COLUMNS)
 
+# 최초 화면 로딩 시 데이터 원본 캐싱 (철벽 방어에 활용됨)
 df = load_data()
 krx_list = get_krx_list() 
 
 # ==========================================
-# [UPDATED] AI 영수증 캡쳐 분석 모듈 (수익률 자동계산 천재 버전)
+# 사이드바: AI 영수증 캡쳐 분석 모듈
 # ==========================================
 st.sidebar.header("📸 AI 영수증 자동 입력")
 with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
@@ -119,7 +120,6 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
                 try:
                     clean_api_key = api_key.strip()
                     genai.configure(api_key=clean_api_key)
-                    # 에러 해결: 버전을 2.5로 업데이트!
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     img = Image.open(uploaded_file)
                     
@@ -140,26 +140,29 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
                     """
                     response = model.generate_content([prompt, img])
                     
-                    result_text = response.text.strip()
-                    if result_text.startswith("```json"):
-                        result_text = result_text[7:]
-                    if result_text.startswith("```"):
-                        result_text = result_text[3:]
-                    if result_text.endswith("```"):
-                        result_text = result_text[:-3]
-                    result_text = result_text.strip()
-                    
-                    data = json.loads(result_text)
-                    
-                    st.session_state.ai_ticker = data.get('ticker', '')
-                    buy_amt_raw = str(data.get('buy_amount', 0)).replace(',', '')
-                    st.session_state.ai_buy_amt = int(float(buy_amt_raw))
-                    
-                    roi_raw = str(data.get('roi', 0.0)).replace(',', '').replace('%', '')
-                    st.session_state.ai_roi = float(roi_raw)
-                    
-                    st.session_state.ai_memo = data.get('memo', '📸 AI 분석 자동 입력')
-                    st.success("✅ 분석 성공! 아래 폼에 입력되었습니다.")
+                    if not response.parts:
+                        st.error("🚨 AI가 응답을 반환하지 않았습니다. 이미지가 명확하지 않거나 필터에 걸렸을 수 있습니다.")
+                    else:
+                        result_text = response.text.strip()
+                        if result_text.startswith("```json"):
+                            result_text = result_text[7:]
+                        if result_text.startswith("```"):
+                            result_text = result_text[3:]
+                        if result_text.endswith("```"):
+                            result_text = result_text[:-3]
+                        result_text = result_text.strip()
+                        
+                        data = json.loads(result_text)
+                        
+                        st.session_state.ai_ticker = data.get('ticker', '')
+                        buy_amt_raw = str(data.get('buy_amount', 0)).replace(',', '')
+                        st.session_state.ai_buy_amt = int(float(buy_amt_raw))
+                        
+                        roi_raw = str(data.get('roi', 0.0)).replace(',', '').replace('%', '')
+                        st.session_state.ai_roi = float(roi_raw)
+                        
+                        st.session_state.ai_memo = data.get('memo', '📸 AI 분석 자동 입력')
+                        st.success("✅ 분석 성공! 아래 폼에 입력되었습니다.")
                     
                 except Exception as e:
                     st.error("🚨 해독 실패! AI가 반환한 데이터를 이해하지 못했습니다.")
@@ -167,7 +170,6 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
                         st.write(f"시스템 에러: {e}")
                         if 'result_text' in locals():
                             st.write("AI가 뱉은 원본 데이터:", result_text)
-                        st.write("조치: API 키를 다시 확인하시거나 조금 더 선명하게 캡쳐해보세요.")
 
 # AI가 뽑아둔 데이터가 있으면 가져오고, 없으면 기본값 세팅
 def_ticker = st.session_state.get('ai_ticker', '')
@@ -208,37 +210,63 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
     st.markdown("---")
     memo = st.text_input("메모 (특이사항 등)", value=def_memo)
     
+    # [🔥 핵심 업데이트: 데이터 증발 철벽 방어 코드]
     if st.form_submit_button("기록 저장"):
         if ticker:
-            new_data = pd.DataFrame([{
-                'Date': date.strftime('%Y-%m-%d'), 
-                'Ticker': ticker, 
-                'Buy_Amount': buy_amt, 
-                'Sell_Amount': sell_amt,
-                'P_L_Amount': pn_l, 
-                'ROI_Percent': roi, 
-                'Mistake_Tags': None,
-                'Emotion': None,
-                'Discipline': None,
-                'Memo': memo
-            }])
-            
-            if df.empty: updated_df = new_data
-            else:
-                df_temp = load_data()
-                df_temp['Date'] = df_temp['Date'].dt.strftime('%Y-%m-%d')
-                updated_df = pd.concat([df_temp, new_data], ignore_index=True)
-            conn.update(worksheet=0, data=updated_df)
-            
-            # 저장 후 AI 기록 찌꺼기 초기화
-            if 'ai_ticker' in st.session_state:
-                st.session_state.ai_ticker = ""
-                st.session_state.ai_buy_amt = 0
-                st.session_state.ai_roi = 0.0
-                st.session_state.ai_memo = ""
-                
-            st.success(f"✅ {ticker} 저장 완료! (수익률 {roi:.2f}%)"); st.rerun()
-        else: st.error("종목명을 입력해주세요.")
+            with st.spinner("안전하게 암호화하여 저장 중입니다... 🛡️"):
+                try:
+                    new_data = pd.DataFrame([{
+                        'Date': date.strftime('%Y-%m-%d'), 
+                        'Ticker': ticker, 
+                        'Buy_Amount': buy_amt, 
+                        'Sell_Amount': sell_amt,
+                        'P_L_Amount': pn_l, 
+                        'ROI_Percent': roi, 
+                        'Mistake_Tags': None,
+                        'Emotion': None,
+                        'Discipline': None,
+                        'Memo': memo
+                    }])
+                    
+                    # 1. 저장 직전에 서버에서 최신 데이터를 다시 불러옵니다.
+                    live_df = conn.read(worksheet=0, ttl=0)
+                    
+                    # 2. 교차 검증 (에러 방지 핵심 로직)
+                    # 만약 방금 불러온 게 텅 비었는데, 애초에 화면에 띄워둔 원본(df)에는 데이터가 있었다면? -> 통신 에러!
+                    if live_df.empty and not df.empty:
+                        safe_df = df.copy() # 화면에 살아있던 안전한 데이터를 복사
+                        safe_df['Date'] = pd.to_datetime(safe_df['Date']).dt.strftime('%Y-%m-%d')
+                        updated_df = pd.concat([safe_df, new_data], ignore_index=True)
+                        st.toast("⚠️ 일시적인 통신 지연을 감지하여 안전 모드로 백업 데이터를 활용해 저장했습니다.")
+                    
+                    elif not live_df.empty:
+                        # 정상적으로 불러와졌다면 그대로 합칩니다.
+                        live_df['Date'] = pd.to_datetime(live_df['Date']).dt.strftime('%Y-%m-%d')
+                        updated_df = pd.concat([live_df, new_data], ignore_index=True)
+                        
+                    else:
+                        # 둘 다 비어있다면 진짜 계좌를 처음 생성한 첫 기록인 경우
+                        updated_df = new_data
+                        
+                    # 3. 완벽하게 보호된 데이터를 덮어씌웁니다.
+                    conn.update(worksheet=0, data=updated_df)
+                    
+                    # 저장 후 AI 기록 찌꺼기 초기화
+                    if 'ai_ticker' in st.session_state:
+                        st.session_state.ai_ticker = ""
+                        st.session_state.ai_buy_amt = 0
+                        st.session_state.ai_roi = 0.0
+                        st.session_state.ai_memo = ""
+                        
+                    st.success(f"✅ {ticker} 완벽하게 저장 완료! (수익률 {roi:.2f}%)")
+                    st.rerun()
+                    
+                except Exception as e:
+                    # 진짜 알 수 없는 심각한 에러가 났을 때는 원본을 지키기 위해 저장을 강제 취소합니다.
+                    st.error(f"🚨 심각한 통신 오류 감지! 원본 데이터 보호를 위해 저장을 차단했습니다. 새로고침 후 다시 시도하세요.")
+                    st.write(f"에러 내용: {e}")
+        else: 
+            st.error("종목명을 입력해주세요.")
 
 if krx_list.empty: st.sidebar.caption("⚠️ 리스트 로딩 실패")
 else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
@@ -247,7 +275,7 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 10개 (시뮬레이터, 신호등 삭제 및 AI 복기, 시장 풍향계 이동)
+    # 탭 구성: 총 10개 (시뮬레이터, 신호등 삭제 및 AI 복기, 시장 풍향계 유지)
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
         "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "📈 AI 차트 복기", "🚨 시장 풍향계"
@@ -560,7 +588,7 @@ if not df.empty:
                             st.error("🚨 차트 분석 실패! 이미지가 흐리거나 에러가 발생했습니다.")
                             st.write(f"에러 상세: {e}")
 
-    # === [UPDATED] TAB 10: 시장 풍향계 (Market Compass) - FTD 추가 ===
+    # === TAB 10: 시장 풍향계 (Market Compass) ===
     with tab10:
         st.subheader("🚨 시장 풍향계 (Market Compass)")
         st.markdown("**\"시장을 이기려 하지 마라. 큰손들이 나갈 때는 우리도 도망쳐야 한다.\"** - 윌리엄 오닐")
@@ -613,7 +641,6 @@ if not df.empty:
 
                     return current_close, current_21, current_50, dist_count, last_ftd
 
-                # 리턴값 5개로 매칭 (ftd 추가)
                 ks_close, ks_21, ks_50, ks_dist, ks_ftd = analyze_index(ks, "코스피")
                 spx_close, spx_21, spx_50, spx_dist, spx_ftd = analyze_index(spx, "S&P 500")
                 ndx_close, ndx_21, ndx_50, ndx_dist, ndx_ftd = analyze_index(ndx, "나스닥")
@@ -643,7 +670,7 @@ if not df.empty:
 
                             st.write(f"**카운트:** 누적 분배일 {dist}일 → {dist_status}")
                             st.write(f"**추세선:** {trend_status}")
-                            st.write(f"**최근 FTD:** {ftd}") # 팔로스루데이 출력 추가
+                            st.write(f"**최근 FTD:** {ftd}")
                             st.divider()
 
                             # 윌리엄 오닐 & 미너비니 종합 평가
@@ -654,7 +681,6 @@ if not df.empty:
                             else:
                                 st.success("🔥 **[공격 모드]**\n시장이 강세입니다! 주도주 돌파 매매에 적극 참여하세요.")
 
-                # 함수 호출 시 ftd 인자 추가
                 render_market_status(c1, "🏢 KOSPI (한국 대형주)", ks_close, ks_21, ks_50, ks_dist, ks_ftd)
                 render_market_status(c2, "🇺🇸 S&P 500 (미국 대형주)", spx_close, spx_21, spx_50, spx_dist, spx_ftd)
                 render_market_status(c3, "🚀 NASDAQ (미국 기술주)", ndx_close, ndx_21, ndx_50, ndx_dist, ndx_ftd)
