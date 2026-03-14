@@ -293,7 +293,7 @@ if not df.empty:
     risk_reward_ratio = avg_win / avg_loss if avg_loss > 0 else 0
     avg_roi = df['ROI_Percent'].mean()
 
-    # === TAB 1: 차트 (파산 위험 업데이트) ===
+    # === TAB 1: 차트 (파산 위험 제거, 켈리 비중으로 업데이트) ===
     with tab1:
         st.subheader("🏆 전체 종합 성적표 (Total Legend)")
         total_pl = df['P_L_Amount'].sum()
@@ -317,26 +317,19 @@ if not df.empty:
         loss_prob = 1 - win_prob
         expectancy = (win_prob * all_avg_profit_pct) - (loss_prob * all_avg_loss_pct)
 
-        # [NEW] 파산 위험 (Risk of Ruin) 계산 로직 (사진 공식 적용)
-        saved_equity, _, _ = load_status()
-        if all_avg_loss_amt > 0:
-            u_value = saved_equity / all_avg_loss_amt
+        # [NEW] 켈리 기준 (Kelly Criterion) 계산 로직 (추세추종 맞춤형)
+        if money_rr_ratio > 0:
+            kelly_fraction = win_prob - (loss_prob / money_rr_ratio)
+            kelly_pct = max(0.0, kelly_fraction * 100) # 마이너스 기댓값이면 비중 0%로 처리
         else:
-            u_value = 1000 # 손실이 한 번도 없는 초기 상태
-            
-        w_minus_l = win_prob - loss_prob
-        if w_minus_l > 0:
-            risk_of_ruin = ((1 - w_minus_l) / (1 + w_minus_l)) ** u_value
-            risk_of_ruin_pct = risk_of_ruin * 100
-        else:
-            risk_of_ruin_pct = 100.0 # 공식상 승률이 50% 이하면 파산확률 100% 수렴
+            kelly_pct = 0.0
             
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("💰 누적 총 손익", f"{total_pl:,.0f}원")
         m2.metric("🎯 전체 승률", f"{win_rate:.1f}%", help="총 매매 횟수 중 수익을 낸 매매의 비율입니다.")
         m3.metric("🔮 기간 기댓값 (Edge)", f"{expectancy:.2f}%", help="(승률 × 평균수익%) - (패율 × 평균손실%). 매매를 한 번 할 때마다 계좌가 평균적으로 몇 %씩 성장하는지 보여주는 '수학적 우위'입니다.")
         m4.metric("💎 Profit Factor", f"{total_pf:.2f}", help="총 이익금 ÷ 총 손실금. '번 돈이 잃은 돈보다 몇 배 많은가?'를 나타냅니다. 1.5 이상이면 훌륭하고, 3.0 이상이면 초고수입니다.")
-        m5.metric("☠️ 파산 위험", f"{risk_of_ruin_pct:.2f}%", help="책에 나온 공식 [ (1-(W-L))/(1+(W-L)) ]^U 을 적용했습니다. U는 (총자산 ÷ 평균손실금)입니다. 승률이 50% 이하일 경우 수학적으로 100%에 수렴합니다.")
+        m5.metric("⚖️ 켈리 베팅 비중", f"{kelly_pct:.1f}%", help="켈리 공식: 사장님의 현재 승률과 손익비를 바탕으로, 계좌를 가장 안전하고 빠르게 불릴 수 있는 '1회 매매당 최적의 자산 투입 비중'입니다.")
         
         st.divider()
         st.markdown("##### 💵 금액(Money) 성적표 (배짱)")
@@ -424,7 +417,7 @@ if not df.empty:
         elif vic_period == "최근 1년": vic_df = vic_df[vic_df['Date'] >= (today - timedelta(days=365))]
         if not vic_df.empty:
             v_wins = vic_df[vic_df['ROI_Percent'] > 0]; v_losses = vic_df[vic_df['ROI_Percent'] <= 0]
-            v_win_rate = (len(v_wins) / len(vicdf)) * 100
+            v_win_rate = (len(v_wins) / len(vic_df)) * 100
             v_avg_win = v_wins['ROI_Percent'].mean() if not v_wins.empty else 0
             v_avg_loss = abs(v_losses['ROI_Percent'].mean()) if not v_losses.empty else 0
             v_rr_ratio = v_avg_win / v_avg_loss if v_avg_loss > 0 else 0
