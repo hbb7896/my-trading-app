@@ -275,7 +275,7 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 10개 (시뮬레이터, 신호등 삭제 및 AI 복기, 시장 풍향계 유지)
+    # 탭 구성: 총 10개
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
         "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "📈 AI 차트 복기", "🚨 시장 풍향계"
@@ -293,7 +293,7 @@ if not df.empty:
     risk_reward_ratio = avg_win / avg_loss if avg_loss > 0 else 0
     avg_roi = df['ROI_Percent'].mean()
 
-    # === TAB 1: 차트 ===
+    # === TAB 1: 차트 (파산 위험 업데이트) ===
     with tab1:
         st.subheader("🏆 전체 종합 성적표 (Total Legend)")
         total_pl = df['P_L_Amount'].sum()
@@ -317,11 +317,26 @@ if not df.empty:
         loss_prob = 1 - win_prob
         expectancy = (win_prob * all_avg_profit_pct) - (loss_prob * all_avg_loss_pct)
 
-        m1, m2, m3, m4 = st.columns(4)
+        # [NEW] 파산 위험 (Risk of Ruin) 계산 로직 (사진 공식 적용)
+        saved_equity, _, _ = load_status()
+        if all_avg_loss_amt > 0:
+            u_value = saved_equity / all_avg_loss_amt
+        else:
+            u_value = 1000 # 손실이 한 번도 없는 초기 상태
+            
+        w_minus_l = win_prob - loss_prob
+        if w_minus_l > 0:
+            risk_of_ruin = ((1 - w_minus_l) / (1 + w_minus_l)) ** u_value
+            risk_of_ruin_pct = risk_of_ruin * 100
+        else:
+            risk_of_ruin_pct = 100.0 # 공식상 승률이 50% 이하면 파산확률 100% 수렴
+            
+        m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("💰 누적 총 손익", f"{total_pl:,.0f}원")
         m2.metric("🎯 전체 승률", f"{win_rate:.1f}%", help="총 매매 횟수 중 수익을 낸 매매의 비율입니다.")
         m3.metric("🔮 기간 기댓값 (Edge)", f"{expectancy:.2f}%", help="(승률 × 평균수익%) - (패율 × 평균손실%). 매매를 한 번 할 때마다 계좌가 평균적으로 몇 %씩 성장하는지 보여주는 '수학적 우위'입니다.")
         m4.metric("💎 Profit Factor", f"{total_pf:.2f}", help="총 이익금 ÷ 총 손실금. '번 돈이 잃은 돈보다 몇 배 많은가?'를 나타냅니다. 1.5 이상이면 훌륭하고, 3.0 이상이면 초고수입니다.")
+        m5.metric("☠️ 파산 위험", f"{risk_of_ruin_pct:.2f}%", help="책에 나온 공식 [ (1-(W-L))/(1+(W-L)) ]^U 을 적용했습니다. U는 (총자산 ÷ 평균손실금)입니다. 승률이 50% 이하일 경우 수학적으로 100%에 수렴합니다.")
         
         st.divider()
         st.markdown("##### 💵 금액(Money) 성적표 (배짱)")
@@ -409,7 +424,7 @@ if not df.empty:
         elif vic_period == "최근 1년": vic_df = vic_df[vic_df['Date'] >= (today - timedelta(days=365))]
         if not vic_df.empty:
             v_wins = vic_df[vic_df['ROI_Percent'] > 0]; v_losses = vic_df[vic_df['ROI_Percent'] <= 0]
-            v_win_rate = (len(v_wins) / len(vic_df)) * 100
+            v_win_rate = (len(v_wins) / len(vicdf)) * 100
             v_avg_win = v_wins['ROI_Percent'].mean() if not v_wins.empty else 0
             v_avg_loss = abs(v_losses['ROI_Percent'].mean()) if not v_losses.empty else 0
             v_rr_ratio = v_avg_win / v_avg_loss if v_avg_loss > 0 else 0
