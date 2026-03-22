@@ -275,10 +275,10 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 10개
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
+    # [NEW] 탭 구성: 총 11개 (깡토의 R 계산기 신설)
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "📈 AI 차트 복기", "🚨 시장 풍향계"
+        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "📈 AI 차트 복기", "🚨 시장 풍향계", "🧮 깡토의 R 계산기"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -293,7 +293,7 @@ if not df.empty:
     risk_reward_ratio = avg_win / avg_loss if avg_loss > 0 else 0
     avg_roi = df['ROI_Percent'].mean()
 
-    # === TAB 1: 차트 (파산 위험 제거, 켈리 비중으로 업데이트) ===
+    # === TAB 1: 차트 ===
     with tab1:
         st.subheader("🏆 전체 종합 성적표 (Total Legend)")
         total_pl = df['P_L_Amount'].sum()
@@ -317,10 +317,10 @@ if not df.empty:
         loss_prob = 1 - win_prob
         expectancy = (win_prob * all_avg_profit_pct) - (loss_prob * all_avg_loss_pct)
 
-        # [NEW] 켈리 기준 (Kelly Criterion) 계산 로직 (추세추종 맞춤형)
+        # 켈리 기준 (Kelly Criterion) 계산 로직
         if money_rr_ratio > 0:
             kelly_fraction = win_prob - (loss_prob / money_rr_ratio)
-            kelly_pct = max(0.0, kelly_fraction * 100) # 마이너스 기댓값이면 비중 0%로 처리
+            kelly_pct = max(0.0, kelly_fraction * 100) 
         else:
             kelly_pct = 0.0
             
@@ -699,6 +699,44 @@ if not df.empty:
             except Exception as e:
                 st.error("시장 데이터를 불러오는 데 실패했습니다. 잠시 후 다시 시도해주세요.")
                 st.write(f"에러 상세: {e}")
+
+    # === [NEW] TAB 11: 깡토의 R 계산기 ===
+    with tab11:
+        st.subheader("🧮 깡토의 실전 R 계산기 (Position Sizing)")
+        st.markdown("**\"매수 버튼을 누르기 전, 내 시드와 감당할 리스크(R)에 맞는 최적의 투입 금액을 계산합니다.\"**")
+        
+        with st.container(border=True):
+            st.markdown("#### 1️⃣ 나의 투자 기준 입력")
+            c1, c2, c3 = st.columns(3)
+            
+            # 기본 시드머니는 사장님이 저장해둔 총 자산으로 세팅
+            saved_eq, _, _ = load_status()
+            
+            seed_money = c1.number_input("💰 총 시드머니 (원)", value=int(saved_eq), step=1000000)
+            r_pct = c2.number_input("📉 나의 1R 리스크 (%)", value=1.0, step=0.5, help="총 자산 대비 1회 매매에서 감수할 최대 손실 비율입니다. (보통 1~2%)")
+            sl_pct = c3.number_input("✂️ 손절 기준 (%)", value=8.0, step=1.0, help="이 종목을 샀을 때, 몇 % 하락하면 손절할 것인지 정합니다.")
+            
+        if seed_money > 0 and sl_pct > 0:
+            # 책에 나온 공식 적용
+            max_loss_amt = seed_money * (r_pct / 100)
+            max_position_amt = max_loss_amt * (100 / sl_pct)
+            position_weight = (max_position_amt / seed_money) * 100
+            target_profit_pct = sl_pct * 3 # 1:3 손익비 기준
+            
+            st.markdown("#### 2️⃣ 계산 결과 (Action Plan)")
+            res1, res2 = st.columns(2)
+            with res1:
+                st.info(f"**💡 이 매매의 1R (최대 감수 손실금)**\n### {max_loss_amt:,.0f} 원")
+                st.success(f"**🎯 추천 최대 투입 금액 (포지션 사이즈)**\n### {max_position_amt:,.0f} 원")
+                st.write(f"👉 총 자산의 **{position_weight:.1f}%** 비중")
+                
+            with res2:
+                st.warning(f"**✂️ 강제 손절 라인 (-1R)**\n### -{sl_pct:.1f}%")
+                st.error(f"**🏆 최소 목표 익절 라인 (3R)**\n### +{target_profit_pct:.1f}%")
+                st.write(f"👉 손익비 1:3 도달 시 기대 수익금: **{max_loss_amt * 3:,.0f} 원**")
+                
+            st.divider()
+            st.caption("※ 책에 명시된 예시 공식: (1R 손실금액 × 100%) ÷ 손절폭(%) = 매매당 최대 베팅 금액")
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
