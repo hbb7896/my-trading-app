@@ -327,8 +327,8 @@ if not df.empty:
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("💰 누적 총 손익", f"{total_pl:,.0f}원")
         m2.metric("🎯 전체 승률", f"{win_rate:.1f}%", help="총 매매 횟수 중 수익을 낸 매매의 비율입니다.")
-        m3.metric("🔮 기간 기댓값 (Edge)", f"{expectancy:.2f}%", help="(승률 × 평균수익%) - (패율 × 평균손실%). 매매를 한 번 할 때마다 계좌가 평균적으로 몇 %씩 성장하는지 보여주는 '수학적 우위'입니다.")
-        m4.metric("💎 Profit Factor", f"{total_pf:.2f}", help="총 이익금 ÷ 총 손실금. '번 돈이 잃은 정보다 몇 배 많은가?'를 나타냅니다. 1.5 이상이면 훌륭하고, 3.0 이상이면 초고수입니다.")
+        m3.metric("🔮 기간 기댓값 (Edge)", f"{expectancy:.2f}%", help="(승률 × 평균수익%) - (패율 × 평균손실%). 매매를 한 일 때마다 계좌가 평균적으로 몇 %씩 성장하는지 보여주는 '수학적 우위'입니다.")
+        m4.metric("💎 Profit Factor", f"{total_pf:.2f}", help="총 이익금 ÷ 총 손실금. '번 돈이 잃은 돈보다 몇 배 많은가?'를 나타냅니다. 1.5 이상이면 훌륭하고, 3.0 이상이면 초고수입니다.")
         m5.metric("⚖️ 켈리 베팅 비중", f"{kelly_pct:.1f}%", help="켈리 공식: 사장님의 현재 승률과 손익비를 바탕으로, 계좌를 가장 안전하고 빠르게 불릴 수 있는 '1회 매매당 최적의 자산 투입 비중'입니다.")
         
         st.divider()
@@ -737,7 +737,7 @@ if not df.empty:
             
             st.divider()
             
-            # --- 점진적 베팅(Unit) 판독기 추가 ---
+            # --- 점진적 베팅(Unit) 판독기 추가 (입력값 -> 금액 반환으로 역산) ---
             st.markdown("#### 3️⃣ 점진적 베팅 (Unit) 판독기")
             st.caption("※ 1포지션 = 전체 자산의 25%  /  1유닛 = 1포지션의 25% (전체 자산의 6.25%)")
             
@@ -746,31 +746,35 @@ if not df.empty:
             
             col_u1, col_u2 = st.columns(2)
             with col_u1:
-                actual_invest = st.number_input("💸 실제 투입할 금액을 입력하세요 (원)", value=int(max_position_amt), step=100000)
+                # 사용자가 1, 2, 3, 4 등의 '유닛 숫자'를 직접 입력합니다.
+                input_units = st.number_input("🔢 투입할 유닛(Unit) 수를 입력하세요", min_value=0.0, value=1.0, step=1.0)
             
             if one_unit_amt > 0:
-                current_units = actual_invest / one_unit_amt
-                current_positions = actual_invest / one_position_amt
+                # 입력된 유닛 수에 따라 투입해야 할 실제 금액 자동 계산
+                actual_invest = input_units * one_unit_amt
+                current_positions = input_units / 4.0
                 
                 with col_u2:
                     st.write("")
                     st.write("")
-                    if current_units < 1.0:
-                        st.info(f"📊 현재 **{current_units:.1f} 유닛** (정찰병 이하 수준)")
-                    elif current_units < 2.0:
-                        st.success(f"📊 현재 **{current_units:.1f} 유닛** (1유닛 이상 투입 중)")
-                    elif current_units < 3.0:
-                        st.warning(f"📊 현재 **{current_units:.1f} 유닛** (2유닛 이상 투입 중 - 피라미딩)")
-                    elif current_units < 4.0:
-                        st.error(f"📊 현재 **{current_units:.1f} 유닛** (3유닛 이상 투입 중! 비중 꽉 차감)")
-                    else:
-                        st.error(f"🚨 현재 **{current_positions:.1f} 포지션 ({current_units:.1f} 유닛)** (1포지션 100% 이상! 풀베팅 상태)")
+                    st.markdown(f"### 💸 **{actual_invest:,.0f} 원**")
+                
+                if input_units < 1.0:
+                    st.info(f"📊 현재 **{input_units:.1f} 유닛** (정찰병 이하 수준)")
+                elif input_units < 2.0:
+                    st.success(f"📊 현재 **{input_units:.1f} 유닛** (1유닛 이상 투입 중)")
+                elif input_units < 3.0:
+                    st.warning(f"📊 현재 **{input_units:.1f} 유닛** (2유닛 이상 투입 중 - 피라미딩)")
+                elif input_units < 4.0:
+                    st.error(f"📊 현재 **{input_units:.1f} 유닛** (3유닛 이상 투입 중! 비중 꽉 차감)")
+                else:
+                    st.error(f"🚨 현재 **{current_positions:.1f} 포지션 ({input_units:.1f} 유닛)** (1포지션 100% 이상! 풀베팅 상태)")
             
             st.markdown("---")
             # 데이터베이스(구글 시트) 스키마를 망가뜨리지 않으면서, 메모란에 데이터를 안전하게 저장해 주는 마법의 연동 버튼
             if st.button("📝 이 베팅 계획을 사이드바 매매 기록으로 전송 (저장 준비) ➡️"):
                 st.session_state.ai_buy_amt = int(actual_invest)
-                st.session_state.ai_memo = f"점진적 베팅: {current_units:.1f}유닛 투입"
+                st.session_state.ai_memo = f"점진적 베팅: {input_units:.1f}유닛 투입"
                 st.rerun()
 
 else:
