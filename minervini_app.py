@@ -275,7 +275,7 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # [NEW] 탭 구성: 총 11개 (깡토의 R 계산기 신설)
+    # 탭 구성: 총 11개
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
         "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "📈 AI 차트 복기", "🚨 시장 풍향계", "🧮 깡토의 R 계산기"
@@ -328,7 +328,7 @@ if not df.empty:
         m1.metric("💰 누적 총 손익", f"{total_pl:,.0f}원")
         m2.metric("🎯 전체 승률", f"{win_rate:.1f}%", help="총 매매 횟수 중 수익을 낸 매매의 비율입니다.")
         m3.metric("🔮 기간 기댓값 (Edge)", f"{expectancy:.2f}%", help="(승률 × 평균수익%) - (패율 × 평균손실%). 매매를 한 번 할 때마다 계좌가 평균적으로 몇 %씩 성장하는지 보여주는 '수학적 우위'입니다.")
-        m4.metric("💎 Profit Factor", f"{total_pf:.2f}", help="총 이익금 ÷ 총 손실금. '번 돈이 잃은 돈보다 몇 배 많은가?'를 나타냅니다. 1.5 이상이면 훌륭하고, 3.0 이상이면 초고수입니다.")
+        m4.metric("💎 Profit Factor", f"{total_pf:.2f}", help="총 이익금 ÷ 총 손실금. '번 돈이 잃은 정보다 몇 배 많은가?'를 나타냅니다. 1.5 이상이면 훌륭하고, 3.0 이상이면 초고수입니다.")
         m5.metric("⚖️ 켈리 베팅 비중", f"{kelly_pct:.1f}%", help="켈리 공식: 사장님의 현재 승률과 손익비를 바탕으로, 계좌를 가장 안전하고 빠르게 불릴 수 있는 '1회 매매당 최적의 자산 투입 비중'입니다.")
         
         st.divider()
@@ -700,7 +700,7 @@ if not df.empty:
                 st.error("시장 데이터를 불러오는 데 실패했습니다. 잠시 후 다시 시도해주세요.")
                 st.write(f"에러 상세: {e}")
 
-    # === [NEW] TAB 11: 깡토의 R 계산기 ===
+    # === [NEW] TAB 11: 깡토의 R 계산기 & 점진적 베팅 판독기 ===
     with tab11:
         st.subheader("🧮 깡토의 실전 R 계산기 (Position Sizing)")
         st.markdown("**\"매수 버튼을 누르기 전, 내 시드와 감당할 리스크(R)에 맞는 최적의 투입 금액을 계산합니다.\"**")
@@ -734,9 +734,44 @@ if not df.empty:
                 st.warning(f"**✂️ 강제 손절 라인 (-1R)**\n### -{sl_pct:.1f}%")
                 st.error(f"**🏆 최소 목표 익절 라인 (3R)**\n### +{target_profit_pct:.1f}%")
                 st.write(f"👉 손익비 1:3 도달 시 기대 수익금: **{max_loss_amt * 3:,.0f} 원**")
-                
+            
             st.divider()
-            st.caption("※ 책에 명시된 예시 공식: (1R 손실금액 × 100%) ÷ 손절폭(%) = 매매당 최대 베팅 금액")
+            
+            # --- 점진적 베팅(Unit) 판독기 추가 ---
+            st.markdown("#### 3️⃣ 점진적 베팅 (Unit) 판독기")
+            st.caption("※ 1포지션 = 전체 자산의 25%  /  1유닛 = 1포지션의 25% (전체 자산의 6.25%)")
+            
+            one_position_amt = seed_money * 0.25
+            one_unit_amt = one_position_amt * 0.25
+            
+            col_u1, col_u2 = st.columns(2)
+            with col_u1:
+                actual_invest = st.number_input("💸 실제 투입할 금액을 입력하세요 (원)", value=int(max_position_amt), step=100000)
+            
+            if one_unit_amt > 0:
+                current_units = actual_invest / one_unit_amt
+                current_positions = actual_invest / one_position_amt
+                
+                with col_u2:
+                    st.write("")
+                    st.write("")
+                    if current_units < 1.0:
+                        st.info(f"📊 현재 **{current_units:.1f} 유닛** (정찰병 이하 수준)")
+                    elif current_units < 2.0:
+                        st.success(f"📊 현재 **{current_units:.1f} 유닛** (1유닛 이상 투입 중)")
+                    elif current_units < 3.0:
+                        st.warning(f"📊 현재 **{current_units:.1f} 유닛** (2유닛 이상 투입 중 - 피라미딩)")
+                    elif current_units < 4.0:
+                        st.error(f"📊 현재 **{current_units:.1f} 유닛** (3유닛 이상 투입 중! 비중 꽉 차감)")
+                    else:
+                        st.error(f"🚨 현재 **{current_positions:.1f} 포지션 ({current_units:.1f} 유닛)** (1포지션 100% 이상! 풀베팅 상태)")
+            
+            st.markdown("---")
+            # 데이터베이스(구글 시트) 스키마를 망가뜨리지 않으면서, 메모란에 데이터를 안전하게 저장해 주는 마법의 연동 버튼
+            if st.button("📝 이 베팅 계획을 사이드바 매매 기록으로 전송 (저장 준비) ➡️"):
+                st.session_state.ai_buy_amt = int(actual_invest)
+                st.session_state.ai_memo = f"점진적 베팅: {current_units:.1f}유닛 투입"
+                st.rerun()
 
 else:
     st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
