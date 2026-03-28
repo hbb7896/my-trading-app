@@ -40,7 +40,15 @@ def save_status(equity, max_pos, history):
     """설정과 기록을 구글 시트 두 번째 탭(1)에 저장합니다."""
     try:
         history_str = ",".join(history)
-        new_df = pd.DataFrame([{'Total_Equity': equity, 'Max_Position': max_pos, 'History': history_str}])
+        df_config = conn.read(worksheet=1, ttl=0)
+        # 기존 데이터(11번탭 설정 등)가 날아가지 않게 덮어쓰기 방지 처리!
+        if not df_config.empty:
+            new_df = df_config.copy()
+            new_df.at[0, 'Total_Equity'] = equity
+            new_df.at[0, 'Max_Position'] = max_pos
+            new_df.at[0, 'History'] = history_str
+        else:
+            new_df = pd.DataFrame([{'Total_Equity': equity, 'Max_Position': max_pos, 'History': history_str}])
         conn.update(worksheet=1, data=new_df)
     except Exception as e:
         st.error(f"저장 실패: {e}")
@@ -232,20 +240,17 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
                     live_df = conn.read(worksheet=0, ttl=0)
                     
                     # 2. 교차 검증 (에러 방지 핵심 로직)
-                    # 만약 방금 불러온 게 텅 비었는데, 애초에 화면에 띄워둔 원본(df)에는 데이터가 있었다면? -> 통신 에러!
                     if live_df.empty and not df.empty:
-                        safe_df = df.copy() # 화면에 살아있던 안전한 데이터를 복사
+                        safe_df = df.copy() 
                         safe_df['Date'] = pd.to_datetime(safe_df['Date']).dt.strftime('%Y-%m-%d')
                         updated_df = pd.concat([safe_df, new_data], ignore_index=True)
                         st.toast("⚠️ 일시적인 통신 지연을 감지하여 안전 모드로 백업 데이터를 활용해 저장했습니다.")
                     
                     elif not live_df.empty:
-                        # 정상적으로 불러와졌다면 그대로 합칩니다.
                         live_df['Date'] = pd.to_datetime(live_df['Date']).dt.strftime('%Y-%m-%d')
                         updated_df = pd.concat([live_df, new_data], ignore_index=True)
                         
                     else:
-                        # 둘 다 비어있다면 진짜 계좌를 처음 생성한 첫 기록인 경우
                         updated_df = new_data
                         
                     # 3. 완벽하게 보호된 데이터를 덮어씌웁니다.
@@ -262,7 +267,6 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
                     st.rerun()
                     
                 except Exception as e:
-                    # 진짜 알 수 없는 심각한 에러가 났을 때는 원본을 지키기 위해 저장을 강제 취소합니다.
                     st.error(f"🚨 심각한 통신 오류 감지! 원본 데이터 보호를 위해 저장을 차단했습니다. 새로고침 후 다시 시도하세요.")
                     st.write(f"에러 내용: {e}")
         else: 
@@ -568,7 +572,7 @@ if not df.empty:
                             첨부된 한국 주식 차트 이미지에는 사용자의 매수(B)와 매도(S) 타점이 표시되어 있습니다.
                             당신의 SEPA 전략, VCP(변동성 축소 패턴) 이론, 그리고 엄격한 리스크 관리 철학을 바탕으로 이 타점들을 냉철하게 평가해주세요.
                             
-                            다음 양식에 맞춰 마크다운으로 답변해주세요. 전설적인 트레이더답 단호하고 객관적인 말투를 사용하세요.
+                            다음 양식에 맞춰 마크다운으로 답변해주세요. 전설적인 트레이더답게 단호하고 객관적인 말투를 사용하세요.
 
                             ### 📌 종목 및 전반적인 차트 분석 (Stage Analysis)
                             (이평선 배열, 추세, VCP 여부 등 차트의 뼈대를 분석)
@@ -705,17 +709,24 @@ if not df.empty:
         st.subheader("🧮 깡토의 실전 R 계산기 (Position Sizing)")
         st.markdown("**\"매수 버튼을 누르기 전, 내 시드와 감당할 리스크(R)에 맞는 최적의 투입 금액을 계산합니다.\"**")
         
+        # [🔥 KEY 업데이트] DB에서 불러온 값을 영구 메모리(session state)에 세팅
+        if 'r_seed' not in st.session_state:
+            saved_eq, _, _ = load_status() # 기본값은 내 총 자산
+            st.session_state.r_seed = int(saved_eq)
+        if 'r_risk' not in st.session_state:
+            st.session_state.r_risk = float(saved_config.get('R_Risk', 1.0))
+        if 'r_sl' not in st.session_state:
+            st.session_state.r_sl = float(saved_config.get('R_SL', 8.0))
+        if 'r_unit' not in st.session_state:
+            st.session_state.r_unit = float(saved_config.get('R_Unit', 1.0))
+
         with st.container(border=True):
             st.markdown("#### 1️⃣ 나의 투자 기준 입력")
             c1, c2, c3 = st.columns(3)
             
-            # 기본 시드머니는 사장님이 저장해둔 총 자산으로 세팅
-            saved_eq, _, _ = load_status()
-            
-            # [🔥 KEY 추가] Session State를 통해 화면 새로고침 시에도 입력값 영구 유지
-            seed_money = c1.number_input("💰 총 시드머니 (원)", value=int(saved_eq), step=1000000, key="k_seed")
-            r_pct = c2.number_input("📉 나의 1R 리스크 (%)", value=1.0, step=0.5, key="k_rpct", help="총 자산 대비 1회 매매에서 감수할 최대 손실 비율입니다. (보통 1~2%)")
-            sl_pct = c3.number_input("✂️ 손절 기준 (%)", value=8.0, step=1.0, key="k_slpct", help="이 종목을 샀을 때, 몇 % 하락하면 손절할 것인지 정합니다.")
+            seed_money = c1.number_input("💰 총 시드머니 (원)", value=st.session_state.r_seed, step=1000000)
+            r_pct = c2.number_input("📉 나의 1R 리스크 (%)", value=st.session_state.r_risk, step=0.5, help="총 자산 대비 1회 매매에서 감수할 최대 손실 비율입니다. (보통 1~2%)")
+            sl_pct = c3.number_input("✂️ 손절 기준 (%)", value=st.session_state.r_sl, step=1.0, help="이 종목을 샀을 때, 몇 % 하락하면 손절할 것인지 정합니다.")
             
         if seed_money > 0 and sl_pct > 0:
             # 책에 나온 공식 적용
@@ -747,8 +758,7 @@ if not df.empty:
             
             col_u1, col_u2 = st.columns(2)
             with col_u1:
-                # [🔥 KEY 추가] Session State를 통해 화면 새로고침 시에도 입력값 영구 유지
-                input_units = st.number_input("🔢 투입할 유닛(Unit) 수를 입력하세요", min_value=0.0, value=1.0, step=1.0, key="k_units")
+                input_units = st.number_input("🔢 투입할 유닛(Unit) 수를 입력하세요", min_value=0.0, value=st.session_state.r_unit, step=1.0)
             
             if one_unit_amt > 0:
                 actual_invest = input_units * one_unit_amt
@@ -771,10 +781,29 @@ if not df.empty:
                     st.error(f"🚨 현재 **{current_positions:.1f} 포지션 ({input_units:.1f} 유닛)** (1포지션 100% 이상! 풀베팅 상태)")
             
             st.markdown("---")
-            if st.button("📝 이 베팅 계획을 사이드바 매매 기록으로 전송 (저장 준비) ➡️"):
-                st.session_state.ai_buy_amt = int(actual_invest)
-                st.session_state.ai_memo = f"점진적 베팅: {input_units:.1f}유닛 투입"
-                st.rerun()
+            # [NEW] 대시보드 고정용 버튼 (DB 덮어쓰기 안전 로직 적용)
+            if st.button("💾 현재 설정값 대시보드에 고정하기 (영구 저장)"):
+                st.session_state.r_seed = seed_money
+                st.session_state.r_risk = r_pct
+                st.session_state.r_sl = sl_pct
+                st.session_state.r_unit = input_units
+                
+                with st.spinner("구글 시트에 설정을 영구 저장 중입니다..."):
+                    try:
+                        df_config = conn.read(worksheet=1, ttl=0)
+                        if not df_config.empty:
+                            new_df = df_config.copy()
+                            new_df.at[0, 'R_Risk'] = r_pct
+                            new_df.at[0, 'R_SL'] = sl_pct
+                            new_df.at[0, 'R_Unit'] = input_units
+                        else:
+                            new_df = pd.DataFrame([{'R_Risk': r_pct, 'R_SL': sl_pct, 'R_Unit': input_units}])
+                        conn.update(worksheet=1, data=new_df)
+                        st.success("✅ 완벽하게 저장되었습니다! 앱을 껐다 켜도 이 숫자 그대로 유지됩니다.")
+                    except Exception as e:
+                        st.error(f"저장 실패: {e}")
+                
+                st.rerun() 
 
 else:
     st.info("👈 사이드바 매매 기록을 입력하면 대시보드가 활성화됩니다.")
