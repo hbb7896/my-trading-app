@@ -327,7 +327,7 @@ if not df.empty:
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("💰 누적 총 손익", f"{total_pl:,.0f}원")
         m2.metric("🎯 전체 승률", f"{win_rate:.1f}%", help="총 매매 횟수 중 수익을 낸 매매의 비율입니다.")
-        m3.metric("🔮 기간 기댓값 (Edge)", f"{expectancy:.2f}%", help="(승률 × 평균수익%) - (패율 × 평균손실%). 매매를 한 일 때마다 계좌가 평균적으로 몇 %씩 성장하는지 보여주는 '수학적 우위'입니다.")
+        m3.metric("🔮 기간 기댓값 (Edge)", f"{expectancy:.2f}%", help="(승률 × 평균수익%) - (패율 × 평균손실%). 매매를 한 번 할 때마다 계좌가 평균적으로 몇 %씩 성장하는지 보여주는 '수학적 우위'입니다.")
         m4.metric("💎 Profit Factor", f"{total_pf:.2f}", help="총 이익금 ÷ 총 손실금. '번 돈이 잃은 돈보다 몇 배 많은가?'를 나타냅니다. 1.5 이상이면 훌륭하고, 3.0 이상이면 초고수입니다.")
         m5.metric("⚖️ 켈리 베팅 비중", f"{kelly_pct:.1f}%", help="켈리 공식: 사장님의 현재 승률과 손익비를 바탕으로, 계좌를 가장 안전하고 빠르게 불릴 수 있는 '1회 매매당 최적의 자산 투입 비중'입니다.")
         
@@ -568,7 +568,7 @@ if not df.empty:
                             첨부된 한국 주식 차트 이미지에는 사용자의 매수(B)와 매도(S) 타점이 표시되어 있습니다.
                             당신의 SEPA 전략, VCP(변동성 축소 패턴) 이론, 그리고 엄격한 리스크 관리 철학을 바탕으로 이 타점들을 냉철하게 평가해주세요.
                             
-                            다음 양식에 맞춰 마크다운으로 답변해주세요. 전설적인 트레이더답게 단호하고 객관적인 말투를 사용하세요.
+                            다음 양식에 맞춰 마크다운으로 답변해주세요. 전설적인 트레이더답 단호하고 객관적인 말투를 사용하세요.
 
                             ### 📌 종목 및 전반적인 차트 분석 (Stage Analysis)
                             (이평선 배열, 추세, VCP 여부 등 차트의 뼈대를 분석)
@@ -712,9 +712,10 @@ if not df.empty:
             # 기본 시드머니는 사장님이 저장해둔 총 자산으로 세팅
             saved_eq, _, _ = load_status()
             
-            seed_money = c1.number_input("💰 총 시드머니 (원)", value=int(saved_eq), step=1000000)
-            r_pct = c2.number_input("📉 나의 1R 리스크 (%)", value=1.0, step=0.5, help="총 자산 대비 1회 매매에서 감수할 최대 손실 비율입니다. (보통 1~2%)")
-            sl_pct = c3.number_input("✂️ 손절 기준 (%)", value=8.0, step=1.0, help="이 종목을 샀을 때, 몇 % 하락하면 손절할 것인지 정합니다.")
+            # [🔥 KEY 추가] Session State를 통해 화면 새로고침 시에도 입력값 영구 유지
+            seed_money = c1.number_input("💰 총 시드머니 (원)", value=int(saved_eq), step=1000000, key="k_seed")
+            r_pct = c2.number_input("📉 나의 1R 리스크 (%)", value=1.0, step=0.5, key="k_rpct", help="총 자산 대비 1회 매매에서 감수할 최대 손실 비율입니다. (보통 1~2%)")
+            sl_pct = c3.number_input("✂️ 손절 기준 (%)", value=8.0, step=1.0, key="k_slpct", help="이 종목을 샀을 때, 몇 % 하락하면 손절할 것인지 정합니다.")
             
         if seed_money > 0 and sl_pct > 0:
             # 책에 나온 공식 적용
@@ -737,7 +738,7 @@ if not df.empty:
             
             st.divider()
             
-            # --- 점진적 베팅(Unit) 판독기 추가 (입력값 -> 금액 반환으로 역산) ---
+            # --- 점진적 베팅(Unit) 판독기 ---
             st.markdown("#### 3️⃣ 점진적 베팅 (Unit) 판독기")
             st.caption("※ 1포지션 = 전체 자산의 25%  /  1유닛 = 1포지션의 25% (전체 자산의 6.25%)")
             
@@ -746,11 +747,10 @@ if not df.empty:
             
             col_u1, col_u2 = st.columns(2)
             with col_u1:
-                # 사용자가 1, 2, 3, 4 등의 '유닛 숫자'를 직접 입력합니다.
-                input_units = st.number_input("🔢 투입할 유닛(Unit) 수를 입력하세요", min_value=0.0, value=1.0, step=1.0)
+                # [🔥 KEY 추가] Session State를 통해 화면 새로고침 시에도 입력값 영구 유지
+                input_units = st.number_input("🔢 투입할 유닛(Unit) 수를 입력하세요", min_value=0.0, value=1.0, step=1.0, key="k_units")
             
             if one_unit_amt > 0:
-                # 입력된 유닛 수에 따라 투입해야 할 실제 금액 자동 계산
                 actual_invest = input_units * one_unit_amt
                 current_positions = input_units / 4.0
                 
@@ -771,11 +771,10 @@ if not df.empty:
                     st.error(f"🚨 현재 **{current_positions:.1f} 포지션 ({input_units:.1f} 유닛)** (1포지션 100% 이상! 풀베팅 상태)")
             
             st.markdown("---")
-            # 데이터베이스(구글 시트) 스키마를 망가뜨리지 않으면서, 메모란에 데이터를 안전하게 저장해 주는 마법의 연동 버튼
             if st.button("📝 이 베팅 계획을 사이드바 매매 기록으로 전송 (저장 준비) ➡️"):
                 st.session_state.ai_buy_amt = int(actual_invest)
                 st.session_state.ai_memo = f"점진적 베팅: {input_units:.1f}유닛 투입"
                 st.rerun()
 
 else:
-    st.info("👈 사이드바에 매매 기록을 입력하면 대시보드가 활성화됩니다.")
+    st.info("👈 사이드바 매매 기록을 입력하면 대시보드가 활성화됩니다.")
