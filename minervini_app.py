@@ -279,10 +279,10 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 11개
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
+    # 탭 구성: 총 9개 (불필요 탭 삭제 완료)
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "📈 AI 차트 복기", "🚨 시장 풍향계", "🧮 깡토의 R 계산기"
+        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "🧮 깡토의 R 계산기"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -543,169 +543,8 @@ if not df.empty:
         elif skew < -0.5: st.error("🚨 **[Negative Skew]** 위험합니다! 왼쪽(손실) 꼬리가 더 깁니다. 큰 손실 한 방을 조심하세요.")
         else: st.warning("⚠️ **[Symmetric]** 수익과 손실 패턴이 비슷합니다. '손실은 짧게' 원칙을 더 지켜야 합니다.")
 
-    # === TAB 9: AI 차트 복기 ===
+    # === [NEW] TAB 9: 깡토의 R 계산기 & 점진적 베팅 판독기 (구 11번 탭) ===
     with tab9:
-        st.subheader("📈 AI 차트 복기 (마크 미너비니 1:1 과외)")
-        st.markdown("**\"매수(B)와 매도(S) 타점이 찍힌 차트를 올리시면, 마크 미너비니가 분석해 드립니다.\"**")
-        
-        with st.container(border=True):
-            api_key_tab9 = st.text_input("🔑 Gemini API Key (사이드바에 입력하셨다면 안 넣으셔도 됩니다.)", 
-                                          value=st.session_state.get('sidebar_api', ''), type="password", key="tab9_api")
-            
-            uploaded_chart = st.file_uploader("📸 자동일지차트(B,S 마크 포함) 업로드", type=['png', 'jpg', 'jpeg'], key="tab9_uploader")
-            
-            if st.button("🔥 미너비니 등판 (차트 분석 시작)", use_container_width=True):
-                if not api_key_tab9:
-                    st.error("Gemini API Key를 입력해주세요!")
-                elif not uploaded_chart:
-                    st.error("차트 이미지를 올려주세요!")
-                else:
-                    with st.spinner("마크 미너비니가 사장님의 차트를 째려보고 있습니다... 🧐"):
-                        try:
-                            clean_api = api_key_tab9.strip()
-                            genai.configure(api_key=clean_api)
-                            model = genai.GenerativeModel('gemini-2.5-flash')
-                            chart_img = Image.open(uploaded_chart)
-                            
-                            prompt_minervini = """
-                            당신은 세계적인 주식 트레이더 '마크 미너비니(Mark Minervini)'입니다.
-                            첨부된 한국 주식 차트 이미지에는 사용자의 매수(B)와 매도(S) 타점이 표시되어 있습니다.
-                            당신의 SEPA 전략, VCP(변동성 축소 패턴) 이론, 그리고 엄격한 리스크 관리 철학을 바탕으로 이 타점들을 냉철하게 평가해주세요.
-                            
-                            다음 양식에 맞춰 마크다운으로 답변해주세요. 전설적인 트레이더답게 단호하고 객관적인 말투를 사용하세요.
-
-                            ### 📌 종목 및 전반적인 차트 분석 (Stage Analysis)
-                            (이평선 배열, 추세, VCP 여부 등 차트의 뼈대를 분석)
-
-                            ### 🟢 B(매수) 타점 평가
-                            (돌파 여부, 거래량, 진입 타이밍의 적절성을 분석)
-
-                            ### 🔴 S(매도) 타점 평가
-                            (수익을 길게 가져갔는지, 너무 일찍 팔았는지, 손절선은 지켰는지 객관적으로 평가)
-
-                            ### 🏆 미너비니의 최종 등급 (S, A, B, C, F 중 택 1) 및 한줄평
-                            (총평 및 개선점)
-                            """
-                            
-                            response = model.generate_content([prompt_minervini, chart_img])
-                            
-                            if not response.parts:
-                                st.error("🚨 AI가 답변을 거부했습니다. (너무 강한 비판을 요구해서 구글 안전 필터에 걸렸을 수 있습니다. 사진을 다시 올려보세요.)")
-                            else:
-                                st.success("✅ 분석 완료! 아래 피드백을 뼈에 새기십시오.")
-                                st.markdown("---")
-                                st.markdown(response.text)
-                            
-                        except Exception as e:
-                            st.error("🚨 차트 분석 실패! 이미지가 흐리거나 에러가 발생했습니다.")
-                            st.write(f"에러 상세: {e}")
-
-    # === TAB 10: 시장 풍향계 (Market Compass) ===
-    with tab10:
-        st.subheader("🚨 시장 풍향계 (Market Compass)")
-        st.markdown("**\"시장을 이기려 하지 마라. 큰손들이 나갈 때는 우리도 도망쳐야 한다.\"** - 윌리엄 오닐")
-
-        with st.spinner("시장 체력 스캔 중... (잠시만 기다려주세요)"):
-            try:
-                # 데이터 150일치 가져오기
-                start_date = (datetime.today() - timedelta(days=150)).strftime('%Y-%m-%d')
-                
-                # fdr 대신 글로벌 yfinance 사용
-                ks = yf.Ticker('^KS11').history(start=start_date) # 코스피
-                spx = yf.Ticker('^GSPC').history(start=start_date) # S&P 500
-                ndx = yf.Ticker('^IXIC').history(start=start_date) # 나스닥
-                
-                # 타임존 제거 (에러 방지용)
-                if not ks.empty: ks.index = ks.index.tz_localize(None)
-                if not spx.empty: spx.index = spx.index.tz_localize(None)
-                if not ndx.empty: ndx.index = ndx.index.tz_localize(None)
-
-                def analyze_index(df, name):
-                    if df.empty:
-                        return 0, 0, 0, 0, "데이터 없음"
-                    
-                    # 이동평균선 계산
-                    df['21EMA'] = df['Close'].ewm(span=21, adjust=False).mean()
-                    df['50SMA'] = df['Close'].rolling(window=50).mean()
-                    
-                    # 전일 대비 데이터 계산
-                    df['Prev_Close'] = df['Close'].shift(1)
-                    df['Prev_Vol'] = df['Volume'].shift(1)
-                    df['Change_Pct'] = (df['Close'] - df['Prev_Close']) / df['Prev_Close'] * 100
-
-                    # 1. 윌리엄 오닐 분배일 조건: -0.2% 이상 하락 & 거래량 증가
-                    df['Dist_Day'] = ((df['Change_Pct'] <= -0.2) & (df['Volume'] > df['Prev_Vol'])).astype(int)
-                    
-                    # 2. 팔로스루데이(FTD) 간이 로직: 1.2% 이상 강한 상승 & 거래량 증가
-                    df['FTD'] = ((df['Change_Pct'] >= 1.2) & (df['Volume'] > df['Prev_Vol']))
-
-                    # 최근 25거래일 기준 분배일 합계
-                    last_25 = df.tail(25)
-                    dist_count = last_25['Dist_Day'].sum()
-                    
-                    # 최근 팔로스루데이 날짜 추출
-                    ftd_dates = df[df['FTD']].index
-                    last_ftd = ftd_dates[-1].strftime('%Y-%m-%d') if len(ftd_dates) > 0 else "최근 없음"
-                    
-                    current_close = df['Close'].iloc[-1]
-                    current_21 = df['21EMA'].iloc[-1]
-                    current_50 = df['50SMA'].iloc[-1]
-
-                    return current_close, current_21, current_50, dist_count, last_ftd
-
-                ks_close, ks_21, ks_50, ks_dist, ks_ftd = analyze_index(ks, "코스피")
-                spx_close, spx_21, spx_50, spx_dist, spx_ftd = analyze_index(spx, "S&P 500")
-                ndx_close, ndx_21, ndx_50, ndx_dist, ndx_ftd = analyze_index(ndx, "나스닥")
-
-                st.markdown("### 📊 현재 시장 상태 (최근 25거래일 기준)")
-                c1, c2, c3 = st.columns(3)
-
-                def render_market_status(col, title, close, ema21, sma50, dist, ftd):
-                    with col:
-                        with st.container(border=True):
-                            st.markdown(f"#### {title}")
-                            if close == 0:
-                                st.warning("데이터 로딩 지연")
-                                return
-                                
-                            st.metric("현재 지수", f"{close:,.2f}")
-
-                            # 분배일 평가 로직
-                            if dist >= 5: dist_status = "🔴 **위험** (분배일 5개 이상)"
-                            elif dist >= 3: dist_status = "🟡 **주의** (분배일 3~4개)"
-                            else: dist_status = "🟢 **안전** (분배일 2개 이하)"
-
-                            # 이평선 추세 평가 로직
-                            if close > ema21 and close > sma50: trend_status = "🟢 **상승 추세** (21EMA, 50SMA 위)"
-                            elif close < sma50: trend_status = "🔴 **하락 추세** (50SMA 붕괴)"
-                            else: trend_status = "🟡 **단기 조정** (21EMA 아래, 50SMA 위)"
-
-                            st.write(f"**카운트:** 누적 분배일 {dist}일 → {dist_status}")
-                            st.write(f"**추세선:** {trend_status}")
-                            st.write(f"**최근 FTD:** {ftd}")
-                            st.divider()
-
-                            # 윌리엄 오닐 & 미너비니 종합 평가
-                            if dist >= 5 or close < sma50:
-                                st.error("🚨 **[방어 모드]**\n지수가 꺾였습니다. 현금 비중을 늘리고 신규 매수를 멈추세요!")
-                            elif dist >= 3 or close < ema21:
-                                st.warning("⚠️ **[경계 모드]**\n시장이 지쳐갑니다. 타점을 보수적으로 잡고 비중을 절반으로 줄이세요.")
-                            else:
-                                st.success("🔥 **[공격 모드]**\n시장이 강세입니다! 주도주 돌파 매매에 적극 참여하세요.")
-
-                render_market_status(c1, "🏢 KOSPI (한국 대형주)", ks_close, ks_21, ks_50, ks_dist, ks_ftd)
-                render_market_status(c2, "🇺🇸 S&P 500 (미국 대형주)", spx_close, spx_21, spx_50, spx_dist, spx_ftd)
-                render_market_status(c3, "🚀 NASDAQ (미국 기술주)", ndx_close, ndx_21, ndx_50, ndx_dist, ndx_ftd)
-
-                st.divider()
-                st.info("💡 **분배일(Distribution Day):** 지수가 -0.2% 이상 하락하면서 동시에 거래량이 전일보다 증가한 날입니다. 5-6개가 누적되면 시장 천장(Top)으로 간주합니다.\n\n💡 **팔로스루데이(Follow-Through Day):** 하락장 속에서 지수가 +1.2% 이상 강하게 상승하며 거래량이 전일보다 증가한 날입니다. 새로운 상승장(Uptrend)의 강력한 신호입니다.")
-
-            except Exception as e:
-                st.error("시장 데이터를 불러오는 데 실패했습니다. 잠시 후 다시 시도해주세요.")
-                st.write(f"에러 상세: {e}")
-
-    # === [NEW] TAB 11: 깡토의 R 계산기 & 점진적 베팅 판독기 ===
-    with tab11:
         st.subheader("🧮 깡토의 실전 R 계산기 (Position Sizing)")
         st.markdown("**\"매수 버튼을 누르기 전, 내 시드와 감당할 리스크(R)에 맞는 최적의 투입 금액을 계산합니다.\"**")
         
