@@ -369,7 +369,8 @@ if not df.empty:
 
     # === TAB 2: 월별 ===
     with tab2:
-        st.subheader("📅 월별 상세 성적표")
+        # [🔥 요 부분만 딱 수정! 마우스 올리면 나오는 말풍선(help) 가이드 추가]
+        st.subheader("📅 월별 상세 성적표", help="💡 **PF (Profit Factor) 수치 가이드**\n\n총 수익금을 총 손실금으로 나눈 값입니다. '내가 잃은 돈 대비 몇 배를 벌었는가?'를 나타냅니다.\n\n- **1.0 미만** : 손실 상태 (원칙 점검 필요!)\n- **1.0 ~ 1.5** : 양호 (수익 누적 중)\n- **1.5 ~ 2.0** : 우수 (훌륭한 매매 전략)\n- **2.0 이상** : 전설 (초고수의 영역)")
         monthly_stats = []
         for ym, group in df.groupby('YearMonth'):
             g_wins = group[group['ROI_Percent'] > 0]; g_losses = group[group['ROI_Percent'] <= 0]
