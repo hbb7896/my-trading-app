@@ -279,7 +279,7 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
-    # 탭 구성: 총 9개 (불필요 탭 삭제 완료)
+    # 탭 구성: 총 9개
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
         "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "🧮 깡토의 R 계산기"
@@ -369,7 +369,6 @@ if not df.empty:
 
     # === TAB 2: 월별 ===
     with tab2:
-        # [🔥 요 부분만 딱 수정! 마우스 올리면 나오는 말풍선(help) 가이드 추가]
         st.subheader("📅 월별 상세 성적표", help="💡 **PF (Profit Factor) 수치 가이드**\n\n총 수익금을 총 손실금으로 나눈 값입니다. '내가 잃은 돈 대비 몇 배를 벌었는가?'를 나타냅니다.\n\n- **1.0 미만** : 손실 상태 (원칙 점검 필요!)\n- **1.0 ~ 1.5** : 양호 (수익 누적 중)\n- **1.5 ~ 2.0** : 우수 (훌륭한 매매 전략)\n- **2.0 이상** : 전설 (초고수의 영역)")
         monthly_stats = []
         for ym, group in df.groupby('YearMonth'):
@@ -384,8 +383,15 @@ if not df.empty:
             m_wl_ratio = m_avg_gain_pct / m_avg_loss_pct if m_avg_loss_pct > 0 else 0
             m_buy_vol = group['Buy_Amount'].sum()
             m_count = len(group)
-            monthly_stats.append({"기간": str(ym), "총 손익": float(group['P_L_Amount'].sum()), "평균수익": float(m_avg_profit_amt), "평균손실": float(m_avg_loss_amt), "거래횟수": int(m_count), "승률": float((len(g_wins)/len(group))*100), "손익비": float(m_wl_ratio), "PF": float(pf), "매수총액": float(m_buy_vol)})
-        st.dataframe(pd.DataFrame(monthly_stats).sort_values("기간", ascending=False).style.format({"총 손익": "{:,.0f}원", "평균수익": "{:,.0f}원", "평균손실": "{:,.0f}원", "거래횟수": "{:,}회", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}", "매수총액": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='RdYlGn'), use_container_width=True)
+            
+            # [🔥 추가된 부분] 기대수익 계산 로직 (월별)
+            win_prob = len(g_wins) / m_count if m_count > 0 else 0
+            loss_prob = 1 - win_prob
+            m_expectancy = (win_prob * m_avg_gain_pct) - (loss_prob * m_avg_loss_pct)
+            
+            monthly_stats.append({"기간": str(ym), "총 손익": float(group['P_L_Amount'].sum()), "평균수익": float(m_avg_profit_amt), "평균손실": float(m_avg_loss_amt), "거래횟수": int(m_count), "승률": float(win_prob*100), "손익비": float(m_wl_ratio), "PF": float(pf), "기대수익": float(m_expectancy), "매수총액": float(m_buy_vol)})
+        
+        st.dataframe(pd.DataFrame(monthly_stats).sort_values("기간", ascending=False).style.format({"총 손익": "{:,.0f}원", "평균수익": "{:,.0f}원", "평균손실": "{:,.0f}원", "거래횟수": "{:,}회", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}", "기대수익": "{:.2f}%", "매수총액": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='RdYlGn'), use_container_width=True)
 
     # === TAB 3: 연도별 ===
     with tab3:
@@ -403,8 +409,15 @@ if not df.empty:
             y_wl_ratio = y_avg_gain_pct / y_avg_loss_pct if y_avg_loss_pct > 0 else 0
             y_buy_vol = group['Buy_Amount'].sum()
             y_count = len(group)
-            yearly_stats.append({"연도": int(y), "총 손익": float(group['P_L_Amount'].sum()), "평균수익": float(y_avg_profit_amt), "평균손실": float(y_avg_loss_amt), "거래횟수": int(y_count), "승률": float((len(g_wins)/len(group))*100), "손익비": float(y_wl_ratio), "PF": float(pf), "매수총액": float(y_buy_vol)})
-        st.dataframe(pd.DataFrame(yearly_stats).sort_values("연도", ascending=False).style.format({"총 손익": "{:,.0f}원", "평균수익": "{:,.0f}원", "평균손실": "{:,.0f}원", "거래횟수": "{:,}회", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}", "매수총액": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
+            
+            # [🔥 추가된 부분] 기대수익 계산 로직 (연도별)
+            win_prob = len(g_wins) / y_count if y_count > 0 else 0
+            loss_prob = 1 - win_prob
+            y_expectancy = (win_prob * y_avg_gain_pct) - (loss_prob * y_avg_loss_pct)
+            
+            yearly_stats.append({"연도": int(y), "총 손익": float(group['P_L_Amount'].sum()), "평균수익": float(y_avg_profit_amt), "평균손실": float(y_avg_loss_amt), "거래횟수": int(y_count), "승률": float(win_prob*100), "손익비": float(y_wl_ratio), "PF": float(pf), "기대수익": float(y_expectancy), "매수총액": float(y_buy_vol)})
+            
+        st.dataframe(pd.DataFrame(yearly_stats).sort_values("연도", ascending=False).style.format({"총 손익": "{:,.0f}원", "평균수익": "{:,.0f}원", "평균손실": "{:,.0f}원", "거래횟수": "{:,}회", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}", "기대수익": "{:.2f}%", "매수총액": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
 
     # === TAB 4: 원본 ===
     with tab4: st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
@@ -544,7 +557,7 @@ if not df.empty:
         elif skew < -0.5: st.error("🚨 **[Negative Skew]** 위험합니다! 왼쪽(손실) 꼬리가 더 깁니다. 큰 손실 한 방을 조심하세요.")
         else: st.warning("⚠️ **[Symmetric]** 수익과 손실 패턴이 비슷합니다. '손실은 짧게' 원칙을 더 지켜야 합니다.")
 
-    # === [NEW] TAB 9: 깡토의 R 계산기 & 점진적 베팅 판독기 (구 11번 탭) ===
+    # === TAB 9: 깡토의 R 계산기 & 점진적 베팅 판독기 ===
     with tab9:
         st.subheader("🧮 깡토의 실전 R 계산기 (Position Sizing)")
         st.markdown("**\"매수 버튼을 누르기 전, 내 시드와 감당할 리스크(R)에 맞는 최적의 투입 금액을 계산합니다.\"**")
