@@ -9,6 +9,7 @@ from streamlit_gsheets import GSheetsConnection
 import random
 # [NEW] AI 분석을 위한 라이브러리 추가
 import json
+import re  # [🔥 김프로 추가] 텍스트 거름망용 정규식 라이브러리
 import google.generativeai as genai
 from PIL import Image
 
@@ -152,15 +153,15 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
                         st.error("🚨 AI가 응답을 반환하지 않았습니다. 이미지가 명확하지 않거나 필터에 걸렸을 수 있습니다.")
                     else:
                         result_text = response.text.strip()
-                        if result_text.startswith("```json"):
-                            result_text = result_text[7:]
-                        if result_text.startswith("```"):
-                            result_text = result_text[3:]
-                        if result_text.endswith("```"):
-                            result_text = result_text[:-3]
-                        result_text = result_text.strip()
                         
-                        data = json.loads(result_text)
+                        # [🔥 김프로 수술 부위 1: 정규식으로 순수 JSON 데이터만 딱 뜯어내기]
+                        match = re.search(r'\{.*\}', result_text, re.DOTALL)
+                        if match:
+                            clean_json = match.group(0)
+                        else:
+                            clean_json = result_text 
+                            
+                        data = json.loads(clean_json)
                         
                         st.session_state.ai_ticker = data.get('ticker', '')
                         buy_amt_raw = str(data.get('buy_amount', 0)).replace(',', '')
@@ -170,35 +171,52 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
                         st.session_state.ai_roi = float(roi_raw)
                         
                         st.session_state.ai_memo = data.get('memo', '📸 AI 분석 자동 입력')
+                        
+                        # [🔥 김프로 수술 부위 2: 폼 강제 업데이트 트리거 작동!]
+                        if 'form_reset_trigger' not in st.session_state:
+                            st.session_state.form_reset_trigger = 0
+                        st.session_state.form_reset_trigger += 1
+                        
                         st.success("✅ 분석 성공! 아래 폼에 입력되었습니다.")
                     
                 except Exception as e:
-                    st.error("🚨 해독 실패! AI가 반환한 데이터를 이해하지 못했습니다.")
-                    with st.expander("🛠️ 김 프로 디버깅 (에러 원인 보기)"):
-                        st.write(f"시스템 에러: {e}")
-                        if 'result_text' in locals():
-                            st.write("AI가 뱉은 원본 데이터:", result_text)
+                    error_msg = str(e)
+                    if "429" in error_msg or "quota" in error_msg.lower():
+                        st.error("🚨 무료 API 호출 제한(1분당 5회) 초과!")
+                        st.warning("사장님! 구글 서버가 너무 빠른 요청에 놀라 잠시 문을 닫았습니다. 딱 1분만 기다리셨다가 다시 버튼을 눌러주십시오! ☕")
+                    else:
+                        st.error("🚨 해독 실패! AI가 엉뚱한 대답을 했습니다. 캡쳐 이미지를 다시 확인해주세요.")
+                        with st.expander("🛠️ 김 프로 디버깅 (에러 원인 보기)"):
+                            st.write(f"시스템 에러: {e}")
+                            if 'result_text' in locals():
+                                st.write("AI가 뱉은 원본 데이터:", result_text)
 
 # AI가 뽑아둔 데이터가 있으면 가져오고, 없으면 기본값 세팅
+if 'form_reset_trigger' not in st.session_state:
+    st.session_state.form_reset_trigger = 0
+    
 def_ticker = st.session_state.get('ai_ticker', '')
-def_buy_amt = st.session_state.get('ai_buy_amt', 0)
-def_roi = st.session_state.get('ai_roi', 0.0)
+def_buy_amt = int(st.session_state.get('ai_buy_amt', 0))
+def_roi = float(st.session_state.get('ai_roi', 0.0))
 def_memo = st.session_state.get('ai_memo', '')
+fc = st.session_state.form_reset_trigger # 폼 고유 키값 생성용
 
 # --- 사이드바 입력 ---
 st.sidebar.markdown("---")
 st.sidebar.header("📝 매매 기록 입력")
 with st.sidebar.form("quick_input", clear_on_submit=True):
     date = st.date_input("일자", datetime.today())
-    ticker = st.text_input("종목명 (예: 삼성전자)", value=def_ticker).strip()
+    
+    # [🔥 김프로 수술 부위 3: fc 변수를 활용해 강제로 새로운 값 밀어넣기]
+    ticker = st.text_input("종목명 (예: 삼성전자)", value=def_ticker, key=f"t_{fc}").strip()
     
     st.markdown("---")
     
     # 1. 매수 금액 입력
-    buy_amt = st.number_input("총 매수 금액 (원)", value=def_buy_amt, step=100000)
+    buy_amt = st.number_input("총 매수 금액 (원)", value=def_buy_amt, step=100000, key=f"b_{fc}")
     
     # 2. 수익률 입력
-    roi = st.number_input("수익률 (%)", value=def_roi, format="%.2f")
+    roi = st.number_input("수익률 (%)", value=def_roi, format="%.2f", key=f"r_{fc}")
     
     # 변수 초기화 및 자동 계산
     sell_amt = 0.0
@@ -216,9 +234,8 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
         """)
 
     st.markdown("---")
-    memo = st.text_input("메모 (특이사항 등)", value=def_memo)
+    memo = st.text_input("메모 (특이사항 등)", value=def_memo, key=f"m_{fc}")
     
-    # [🔥 핵심 업데이트: 데이터 증발 철벽 방어 코드]
     if st.form_submit_button("기록 저장"):
         if ticker:
             with st.spinner("안전하게 암호화하여 저장 중입니다... 🛡️"):
@@ -236,24 +253,19 @@ with st.sidebar.form("quick_input", clear_on_submit=True):
                         'Memo': memo
                     }])
                     
-                    # 1. 저장 직전에 서버에서 최신 데이터를 다시 불러옵니다.
                     live_df = conn.read(worksheet=0, ttl=0)
                     
-                    # 2. 교차 검증 (에러 방지 핵심 로직)
                     if live_df.empty and not df.empty:
                         safe_df = df.copy() 
                         safe_df['Date'] = pd.to_datetime(safe_df['Date']).dt.strftime('%Y-%m-%d')
                         updated_df = pd.concat([safe_df, new_data], ignore_index=True)
                         st.toast("⚠️ 일시적인 통신 지연을 감지하여 안전 모드로 백업 데이터를 활용해 저장했습니다.")
-                    
                     elif not live_df.empty:
                         live_df['Date'] = pd.to_datetime(live_df['Date']).dt.strftime('%Y-%m-%d')
                         updated_df = pd.concat([live_df, new_data], ignore_index=True)
-                        
                     else:
                         updated_df = new_data
                         
-                    # 3. 완벽하게 보호된 데이터를 덮어씌웁니다.
                     conn.update(worksheet=0, data=updated_df)
                     
                     # 저장 후 AI 기록 찌꺼기 초기화
@@ -384,7 +396,7 @@ if not df.empty:
             m_buy_vol = group['Buy_Amount'].sum()
             m_count = len(group)
             
-            # [🔥 추가된 부분] 기대수익 계산 로직 (월별)
+            # 기대수익 계산 로직 (월별)
             win_prob = len(g_wins) / m_count if m_count > 0 else 0
             loss_prob = 1 - win_prob
             m_expectancy = (win_prob * m_avg_gain_pct) - (loss_prob * m_avg_loss_pct)
@@ -410,7 +422,7 @@ if not df.empty:
             y_buy_vol = group['Buy_Amount'].sum()
             y_count = len(group)
             
-            # [🔥 추가된 부분] 기대수익 계산 로직 (연도별)
+            # 기대수익 계산 로직 (연도별)
             win_prob = len(g_wins) / y_count if y_count > 0 else 0
             loss_prob = 1 - win_prob
             y_expectancy = (win_prob * y_avg_gain_pct) - (loss_prob * y_avg_loss_pct)
