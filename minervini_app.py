@@ -301,10 +301,10 @@ if not df.empty:
         except: pass
         return ''
 
-    # 탭 구성: 총 9개
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    # 탭 구성: 총 7개 (사용하지 않는 2개 탭 삭제 반영)
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
-        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🧭 로드맵 점검", "🔔 손익 분포", "🧮 깡토의 R 계산기"
+        "⚖️ 빅터 스페란데오", "🎯 R-배수 분석", "🔔 손익 분포"
     ])
     
     df['Year'] = df['Date'].dt.year
@@ -559,62 +559,8 @@ if not df.empty:
             st.altair_chart(line_r, use_container_width=True)
         else: st.info(f"📭 선택하신 **{r_period}**에는 매매 기록이 없습니다.")
 
-    # === TAB 7: 로드맵 점검 ===
+    # === TAB 7: 손익 분포 (원래 8번에서 7번 탭으로 당겨짐) ===
     with tab7:
-        st.subheader("🧭 로드맵 이행 점검 (Roadmap Check)")
-        st.markdown("**\"김 대리가 내준 3가지 숙제, 잘 하고 계십니까?\"**")
-        st.caption("최근 10건의 매매(New)와 그 이전 매매(Old)를 비교 분석합니다.")
-        df_sorted = df.sort_values('Date', ascending=False)
-        if len(df_sorted) < 5: st.warning("⚠️ 분석할 데이터가 부족합니다. 최소 5건 이상 매매 후 확인해주세요.")
-        else:
-            recent_n = 10; df_recent = df_sorted.head(recent_n); df_old = df_sorted.iloc[recent_n:]
-            if df_old.empty: df_old = df_recent
-            st.markdown("### 1️⃣ 숙제 1: 손절 다이어트 (목표: -4% 이내)")
-            recent_losses = df_recent[df_recent['ROI_Percent'] < 0]; old_losses = df_old[df_old['ROI_Percent'] < 0]
-            r_avg_loss = recent_losses['ROI_Percent'].mean() if not recent_losses.empty else 0.0
-            o_avg_loss = old_losses['ROI_Percent'].mean() if not old_losses.empty else 0.0
-            col1, col2, col3 = st.columns(3)
-            col1.metric("과거 평균 손실", f"{o_avg_loss:.2f}%")
-            col2.metric("최근 평균 손실 (New)", f"{r_avg_loss:.2f}%", delta=f"{r_avg_loss - o_avg_loss:.2f}%p" if r_avg_loss > o_avg_loss else None)
-            with col3:
-                if r_avg_loss >= -4.5: st.success("✅ **합격!** 아주 훌륭합니다.")
-                elif r_avg_loss > -6.0: st.warning("⚠️ **노력 요함** 조금만 더 줄이세요.")
-                else: st.error("❌ **불합격** 아직도 손절이 큽니다.")
-            st.divider()
-            st.markdown("### 2️⃣ 숙제 2: 선구안 개선 (A급 패턴만)")
-            r_win_rate = (len(df_recent[df_recent['ROI_Percent'] > 0]) / len(df_recent)) * 100
-            o_win_rate = (len(df_old[df_old['ROI_Percent'] > 0]) / len(df_old)) * 100
-            c1, c2, c3 = st.columns(3)
-            c1.metric("과거 승률", f"{o_win_rate:.1f}%")
-            c2.metric("최근 승률 (New)", f"{r_win_rate:.1f}%", f"{r_win_rate - o_win_rate:.1f}%p")
-            with c3:
-                if r_win_rate >= 40: st.success("✅ **나이스!** 기다림의 미학을 아시는군요.")
-                elif r_win_rate >= o_win_rate: st.info("🆗 **유지 중** 나쁘지 않습니다.")
-                else: st.error("❌ **뇌동매매 주의** 아무 공이나 휘두르고 계십니다.")
-            st.divider()
-            st.markdown("### 3️⃣ 숙제 3: 홈런 본능 (불타기 & 홀딩)")
-            recent_wins = df_recent[df_recent['ROI_Percent'] > 0]
-            r_max_win = recent_wins['ROI_Percent'].max() if not recent_wins.empty else 0
-            r_avg_win = recent_wins['ROI_Percent'].mean() if not recent_wins.empty else 0
-            k1, k2 = st.columns(2)
-            k1.metric("최근 최고 수익률 (홈런)", f"+{r_max_win:.2f}%")
-            k2.metric("최근 평균 익절폭", f"+{r_avg_win:.2f}%")
-            if r_max_win > 15: st.success("🔥 **[Perfect]** 역시 홈런 타자! 추세를 제대로 탔습니다.")
-            elif r_max_win > 8: st.info("👍 **[Good]** 적당한 2루타입니다. 조금만 더 욕심내보세요.")
-            else: st.warning("먹을 때 너무 짧게 먹습니다. (불타기 부족)")
-            st.divider()
-            score = 0
-            if r_avg_loss >= -4.5: score += 1
-            if r_win_rate >= 40 or r_win_rate > o_win_rate: score += 1
-            if r_max_win > 10: score += 1
-            final_msg = ""
-            if score == 3: final_msg = "🏆 **[트레이딩 마스터]** 김 대리의 하산 허락이 임박했습니다!"
-            elif score == 2: final_msg = "🏃 **[성장 중]** 아주 잘하고 계십니다. 하나만 더 고칩시다."
-            else: final_msg = "🐢 **[분발하세요]** 아직 습관이 안 고쳐졌습니다. 원칙을 다시 읽으세요."
-            st.subheader(f"종합 판정: {final_msg}")
-
-    # === TAB 8: 손익 분포 ===
-    with tab8:
         st.subheader("🔔 손익 분포 (Profit/Loss Distribution)")
         st.markdown("**\"왼쪽(손실)은 짧게, 오른쪽(수익)은 길게! 이것이 이상적인 곡선입니다.\"**")
         bin_step = 2.5; df_dist = df.copy()
@@ -631,107 +577,6 @@ if not df.empty:
         if skew > 0.5: st.success("✅ **[Positive Skew]** 아주 훌륭합니다! 꼬리가 오른쪽(수익)으로 길게 뻗은 이상적인 형태입니다.")
         elif skew < -0.5: st.error("🚨 **[Negative Skew]** 위험합니다! 왼쪽(손실) 꼬리가 더 깁니다. 큰 손실 한 방을 조심하세요.")
         else: st.warning("⚠️ **[Symmetric]** 수익과 손실 패턴이 비슷합니다. '손실은 짧게' 원칙을 더 지켜야 합니다.")
-
-    # === TAB 9: 깡토의 R 계산기 & 점진적 베팅 판독기 ===
-    with tab9:
-        st.subheader("🧮 깡토의 실전 R 계산기 (Position Sizing)")
-        st.markdown("**\"매수 버튼을 누르기 전, 내 시드와 감당할 리스크(R)에 맞는 최적의 투입 금액을 계산합니다.\"**")
-        
-        # [🔥 KEY 업데이트] DB에서 불러온 값을 영구 메모리(session state)에 세팅
-        if 'r_seed' not in st.session_state:
-            saved_eq, _, _ = load_status() # 기본값은 내 총 자산
-            st.session_state.r_seed = int(saved_eq)
-        if 'r_risk' not in st.session_state:
-            st.session_state.r_risk = float(saved_config.get('R_Risk', 1.0))
-        if 'r_sl' not in st.session_state:
-            st.session_state.r_sl = float(saved_config.get('R_SL', 8.0))
-        if 'r_unit' not in st.session_state:
-            st.session_state.r_unit = float(saved_config.get('R_Unit', 1.0))
-
-        with st.container(border=True):
-            st.markdown("#### 1️⃣ 나의 투자 기준 입력")
-            c1, c2, c3 = st.columns(3)
-            
-            seed_money = c1.number_input("💰 총 시드머니 (원)", value=st.session_state.r_seed, step=1000000)
-            r_pct = c2.number_input("📉 나의 1R 리스크 (%)", value=st.session_state.r_risk, step=0.5, help="총 자산 대비 1회 매매에서 감수할 최대 손실 비율입니다. (보통 1~2%)")
-            sl_pct = c3.number_input("✂️ 손절 기준 (%)", value=st.session_state.r_sl, step=1.0, help="이 종목을 샀을 때, 몇 % 하락하면 손절할 것인지 정합니다.")
-            
-        if seed_money > 0 and sl_pct > 0:
-            # 책에 나온 공식 적용
-            max_loss_amt = seed_money * (r_pct / 100)
-            max_position_amt = max_loss_amt * (100 / sl_pct)
-            position_weight = (max_position_amt / seed_money) * 100
-            target_profit_pct = sl_pct * 3 # 1:3 손익비 기준
-            
-            st.markdown("#### 2️⃣ 계산 결과 (Action Plan)")
-            res1, res2 = st.columns(2)
-            with res1:
-                st.info(f"**💡 이 매매의 1R (최대 감수 손실금)**\n### {max_loss_amt:,.0f} 원")
-                st.success(f"**🎯 추천 최대 투입 금액 (포지션 사이즈)**\n### {max_position_amt:,.0f} 원")
-                st.write(f"👉 총 자산의 **{position_weight:.1f}%** 비중")
-                
-            with res2:
-                st.warning(f"**✂️ 강제 손절 라인 (-1R)**\n### -{sl_pct:.1f}%")
-                st.error(f"**🏆 최소 목표 익절 라인 (3R)**\n### +{target_profit_pct:.1f}%")
-                st.write(f"👉 손익비 1:3 도달 시 기대 수익금: **{max_loss_amt * 3:,.0f} 원**")
-            
-            st.divider()
-            
-            # --- 점진적 베팅(Unit) 판독기 ---
-            st.markdown("#### 3️⃣ 점진적 베팅 (Unit) 판독기")
-            st.caption("※ 1포지션 = 전체 자산의 25%  /  1유닛 = 1포지션의 25% (전체 자산의 6.25%)")
-            
-            one_position_amt = seed_money * 0.25
-            one_unit_amt = one_position_amt * 0.25
-            
-            col_u1, col_u2 = st.columns(2)
-            with col_u1:
-                input_units = st.number_input("🔢 투입할 유닛(Unit) 수를 입력하세요", min_value=0.0, value=st.session_state.r_unit, step=1.0)
-            
-            if one_unit_amt > 0:
-                actual_invest = input_units * one_unit_amt
-                current_positions = input_units / 4.0
-                
-                with col_u2:
-                    st.write("")
-                    st.write("")
-                    st.markdown(f"### 💸 **{actual_invest:,.0f} 원**")
-                
-                if input_units < 1.0:
-                    st.info(f"📊 현재 **{input_units:.1f} 유닛** (정찰병 이하 수준)")
-                elif input_units < 2.0:
-                    st.success(f"📊 현재 **{input_units:.1f} 유닛** (1유닛 이상 투입 중)")
-                elif input_units < 3.0:
-                    st.warning(f"📊 현재 **{input_units:.1f} 유닛** (2유닛 이상 투입 중 - 피라미딩)")
-                elif input_units < 4.0:
-                    st.error(f"📊 현재 **{input_units:.1f} 유닛** (3유닛 이상 투입 중! 비중 꽉 차감)")
-                else:
-                    st.error(f"🚨 현재 **{current_positions:.1f} 포지션 ({input_units:.1f} 유닛)** (1포지션 100% 이상! 풀베팅 상태)")
-            
-            st.markdown("---")
-            # [NEW] 대시보드 고정용 버튼 (DB 덮어쓰기 안전 로직 적용)
-            if st.button("💾 현재 설정값 대시보드에 고정하기 (영구 저장)"):
-                st.session_state.r_seed = seed_money
-                st.session_state.r_risk = r_pct
-                st.session_state.r_sl = sl_pct
-                st.session_state.r_unit = input_units
-                
-                with st.spinner("구글 시트에 설정을 영구 저장 중입니다..."):
-                    try:
-                        df_config = conn.read(worksheet=1, ttl=0)
-                        if not df_config.empty:
-                            new_df = df_config.copy()
-                            new_df.at[0, 'R_Risk'] = r_pct
-                            new_df.at[0, 'R_SL'] = sl_pct
-                            new_df.at[0, 'R_Unit'] = input_units
-                        else:
-                            new_df = pd.DataFrame([{'R_Risk': r_pct, 'R_SL': sl_pct, 'R_Unit': input_units}])
-                        conn.update(worksheet=1, data=new_df)
-                        st.success("✅ 완벽하게 저장되었습니다! 앱을 껐다 켜도 이 숫자 그대로 유지됩니다.")
-                    except Exception as e:
-                        st.error(f"저장 실패: {e}")
-                
-                st.rerun() 
 
 else:
     st.info("👈 사이드바 매매 기록을 입력하면 대시보드가 활성화됩니다.")
