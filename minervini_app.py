@@ -154,7 +154,7 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
                     else:
                         result_text = response.text.strip()
                         
-                        # [🔥 김프로 수술 부위 1: 정규식으로 순수 JSON 데이터만 딱 뜯어내기]
+                        # 정규식으로 순수 JSON 데이터만 딱 뜯어내기
                         match = re.search(r'\{.*\}', result_text, re.DOTALL)
                         if match:
                             clean_json = match.group(0)
@@ -172,7 +172,7 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
                         
                         st.session_state.ai_memo = data.get('memo', '📸 AI 분석 자동 입력')
                         
-                        # [🔥 김프로 수술 부위 2: 폼 강제 업데이트 트리거 작동!]
+                        # 폼 강제 업데이트 트리거 작동!
                         if 'form_reset_trigger' not in st.session_state:
                             st.session_state.form_reset_trigger = 0
                         st.session_state.form_reset_trigger += 1
@@ -185,7 +185,7 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
                         st.error("🚨 무료 API 호출 제한(1분당 5회) 초과!")
                         st.warning("사장님! 구글 서버가 너무 빠른 요청에 놀라 잠시 문을 닫았습니다. 딱 1분만 기다리셨다가 다시 버튼을 눌러주십시오! ☕")
                     else:
-                        st.error("🚨 해독 실패! AI가 엉뚱한 대답을 했습니다. 캡쳐 이미지를 다시 확인해주세요.")
+                        st.error("🚨 해독 실패! AI가 엉뚱 대답을 했습니다. 캡쳐 이미지를 다시 확인해주세요.")
                         with st.expander("🛠️ 김 프로 디버깅 (에러 원인 보기)"):
                             st.write(f"시스템 에러: {e}")
                             if 'result_text' in locals():
@@ -207,7 +207,7 @@ st.sidebar.header("📝 매매 기록 입력")
 with st.sidebar.form("quick_input", clear_on_submit=True):
     date = st.date_input("일자", datetime.today())
     
-    # [🔥 김프로 수술 부위 3: fc 변수를 활용해 강제로 새로운 값 밀어넣기]
+    # fc 변수를 활용해 강제로 새로운 값 밀어넣기
     ticker = st.text_input("종목명 (예: 삼성전자)", value=def_ticker, key=f"t_{fc}").strip()
     
     st.markdown("---")
@@ -431,9 +431,9 @@ if not df.empty:
             
         st.dataframe(pd.DataFrame(yearly_stats).sort_values("연도", ascending=False).style.format({"총 손익": "{:,.0f}원", "평균수익": "{:,.0f}원", "평균손실": "{:,.0f}원", "거래횟수": "{:,}회", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}", "기대수익": "{:.2f}%", "매수총액": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
 
-    # === [🔥 김프로 수술 부위 4: 4번 탭 (원본) 컬러 적용] ===
+    # === [🔥 김프로 수술 부위 4: 4번 탭 (원본) 수익률 & 손익금 컬러 동시 적용] ===
     with tab4: 
-        def color_roi(val):
+        def color_profit_loss(val):
             try:
                 if pd.isna(val): return ''
                 if float(val) > 0: return 'color: #FF4444; font-weight: bold;' # 수익은 붉은색
@@ -445,9 +445,15 @@ if not df.empty:
         
         # Streamlit & Pandas 버전에 따른 안정성 확보 (map vs applymap)
         try:
-            styled_df = df_sorted.style.map(color_roi, subset=['ROI_Percent']).format({'ROI_Percent': '{:+.2f}%'})
+            styled_df = df_sorted.style.map(color_profit_loss, subset=['ROI_Percent', 'P_L_Amount']).format({
+                'ROI_Percent': '{:+.2f}%',
+                'P_L_Amount': '{:+,.0f}' # 손익금에도 +, - 기호와 콤마 추가
+            })
         except AttributeError:
-            styled_df = df_sorted.style.applymap(color_roi, subset=['ROI_Percent']).format({'ROI_Percent': '{:+.2f}%'})
+            styled_df = df_sorted.style.applymap(color_profit_loss, subset=['ROI_Percent', 'P_L_Amount']).format({
+                'ROI_Percent': '{:+.2f}%',
+                'P_L_Amount': '{:+,.0f}'
+            })
             
         st.dataframe(styled_df, use_container_width=True)
 
