@@ -431,8 +431,25 @@ if not df.empty:
             
         st.dataframe(pd.DataFrame(yearly_stats).sort_values("연도", ascending=False).style.format({"총 손익": "{:,.0f}원", "평균수익": "{:,.0f}원", "평균손실": "{:,.0f}원", "거래횟수": "{:,}회", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}", "기대수익": "{:.2f}%", "매수총액": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
 
-    # === TAB 4: 원본 ===
-    with tab4: st.dataframe(df.sort_values('Date', ascending=False), use_container_width=True)
+    # === [🔥 김프로 수술 부위 4: 4번 탭 (원본) 컬러 적용] ===
+    with tab4: 
+        def color_roi(val):
+            try:
+                if pd.isna(val): return ''
+                if float(val) > 0: return 'color: #FF4444; font-weight: bold;' # 수익은 붉은색
+                elif float(val) < 0: return 'color: #0066CC; font-weight: bold;' # 손실은 푸른색
+            except: pass
+            return ''
+            
+        df_sorted = df.sort_values('Date', ascending=False)
+        
+        # Streamlit & Pandas 버전에 따른 안정성 확보 (map vs applymap)
+        try:
+            styled_df = df_sorted.style.map(color_roi, subset=['ROI_Percent']).format({'ROI_Percent': '{:+.2f}%'})
+        except AttributeError:
+            styled_df = df_sorted.style.applymap(color_roi, subset=['ROI_Percent']).format({'ROI_Percent': '{:+.2f}%'})
+            
+        st.dataframe(styled_df, use_container_width=True)
 
     # === TAB 5: 빅터 스페란데오 ===
     with tab5:
