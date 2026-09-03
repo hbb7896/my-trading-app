@@ -291,6 +291,16 @@ else: st.sidebar.caption(f"✅ {len(krx_list):,}개 종목 연결됨")
 st.title("💎 Trading Master Dashboard")
 
 if not df.empty:
+    
+    # [🔥 김프로 전역 수술 부위: 모든 탭에서 공통으로 쓸 텍스트 컬러 함수 배치]
+    def color_profit_loss(val):
+        try:
+            if pd.isna(val): return ''
+            if float(val) > 0: return 'color: #FF4444; font-weight: bold;' # 수익은 붉은색
+            elif float(val) < 0: return 'color: #0066CC; font-weight: bold;' # 손실은 푸른색
+        except: pass
+        return ''
+
     # 탭 구성: 총 9개
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "📊 차트", "📅 월별", "📆 연도별", "📋 원본", 
@@ -403,7 +413,26 @@ if not df.empty:
             
             monthly_stats.append({"기간": str(ym), "총 손익": float(group['P_L_Amount'].sum()), "평균수익": float(m_avg_profit_amt), "평균손실": float(m_avg_loss_amt), "거래횟수": int(m_count), "승률": float(win_prob*100), "손익비": float(m_wl_ratio), "PF": float(pf), "기대수익": float(m_expectancy), "매수총액": float(m_buy_vol)})
         
-        st.dataframe(pd.DataFrame(monthly_stats).sort_values("기간", ascending=False).style.format({"총 손익": "{:,.0f}원", "평균수익": "{:,.0f}원", "평균손실": "{:,.0f}원", "거래횟수": "{:,}회", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}", "기대수익": "{:.2f}%", "매수총액": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='RdYlGn'), use_container_width=True)
+        # [🔥 김프로 수술 부위: 월별 표 백그라운드 색상 제거 & 텍스트 컬러 통일 적용]
+        df_monthly = pd.DataFrame(monthly_stats).sort_values("기간", ascending=False)
+        format_dict_m = {
+            "총 손익": "{:+,.0f}원", 
+            "평균수익": "{:,.0f}원", 
+            "평균손실": "{:,.0f}원", 
+            "거래횟수": "{:,}회", 
+            "승률": "{:.1f}%", 
+            "손익비": "{:.2f}", 
+            "PF": "{:.2f}", 
+            "기대수익": "{:+.2f}%", 
+            "매수총액": "{:,.0f}원"
+        }
+        
+        try:
+            styled_monthly = df_monthly.style.map(color_profit_loss, subset=['총 손익', '기대수익']).format(format_dict_m)
+        except AttributeError:
+            styled_monthly = df_monthly.style.applymap(color_profit_loss, subset=['총 손익', '기대수익']).format(format_dict_m)
+            
+        st.dataframe(styled_monthly, use_container_width=True)
 
     # === TAB 3: 연도별 ===
     with tab3:
@@ -429,25 +458,36 @@ if not df.empty:
             
             yearly_stats.append({"연도": int(y), "총 손익": float(group['P_L_Amount'].sum()), "평균수익": float(y_avg_profit_amt), "평균손실": float(y_avg_loss_amt), "거래횟수": int(y_count), "승률": float(win_prob*100), "손익비": float(y_wl_ratio), "PF": float(pf), "기대수익": float(y_expectancy), "매수총액": float(y_buy_vol)})
             
-        st.dataframe(pd.DataFrame(yearly_stats).sort_values("연도", ascending=False).style.format({"총 손익": "{:,.0f}원", "평균수익": "{:,.0f}원", "평균손실": "{:,.0f}원", "거래횟수": "{:,}회", "승률": "{:.1f}%", "손익비": "{:.2f}", "PF": "{:.2f}", "기대수익": "{:.2f}%", "매수총액": "{:,.0f}원"}).background_gradient(subset=['총 손익'], cmap='Greens'), use_container_width=True)
-
-    # === [🔥 김프로 수술 부위 4: 4번 탭 (원본) 수익률 & 손익금 컬러 동시 적용] ===
-    with tab4: 
-        def color_profit_loss(val):
-            try:
-                if pd.isna(val): return ''
-                if float(val) > 0: return 'color: #FF4444; font-weight: bold;' # 수익은 붉은색
-                elif float(val) < 0: return 'color: #0066CC; font-weight: bold;' # 손실은 푸른색
-            except: pass
-            return ''
+        # [🔥 김프로 수술 부위: 연도별 표 백그라운드 색상 제거 & 텍스트 컬러 통일 적용]
+        df_yearly = pd.DataFrame(yearly_stats).sort_values("연도", ascending=False)
+        format_dict_y = {
+            "총 손익": "{:+,.0f}원", 
+            "평균수익": "{:,.0f}원", 
+            "평균손실": "{:,.0f}원", 
+            "거래횟수": "{:,}회", 
+            "승률": "{:.1f}%", 
+            "손익비": "{:.2f}", 
+            "PF": "{:.2f}", 
+            "기대수익": "{:+.2f}%", 
+            "매수총액": "{:,.0f}원"
+        }
+        
+        try:
+            styled_yearly = df_yearly.style.map(color_profit_loss, subset=['총 손익', '기대수익']).format(format_dict_y)
+        except AttributeError:
+            styled_yearly = df_yearly.style.applymap(color_profit_loss, subset=['총 손익', '기대수익']).format(format_dict_y)
             
+        st.dataframe(styled_yearly, use_container_width=True)
+
+    # === TAB 4: 원본 ===
+    with tab4: 
         df_sorted = df.sort_values('Date', ascending=False)
         
-        # Streamlit & Pandas 버전에 따른 안정성 확보 (map vs applymap)
+        # [🔥 김프로 수술 부위: 전역 컬러 함수 그대로 가져다 씀]
         try:
             styled_df = df_sorted.style.map(color_profit_loss, subset=['ROI_Percent', 'P_L_Amount']).format({
                 'ROI_Percent': '{:+.2f}%',
-                'P_L_Amount': '{:+,.0f}' # 손익금에도 +, - 기호와 콤마 추가
+                'P_L_Amount': '{:+,.0f}'
             })
         except AttributeError:
             styled_df = df_sorted.style.applymap(color_profit_loss, subset=['ROI_Percent', 'P_L_Amount']).format({
