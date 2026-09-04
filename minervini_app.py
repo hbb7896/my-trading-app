@@ -130,7 +130,14 @@ with st.sidebar.expander("🤖 캡쳐 화면 올리기", expanded=False):
                     clean_api_key = api_key.strip()
                     genai.configure(api_key=clean_api_key)
                     model = genai.GenerativeModel('gemini-2.5-flash')
+                    
+                    # [🔥 김프로 긴급 수술 부위: 이미지 다이어트 (속도 폭발적 향상)]
                     img = Image.open(uploaded_file)
+                    if img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    # 폰 캡쳐 원본은 해상도가 너무 커서 API 전송 시 병목이 발생합니다.
+                    # 비율을 유지하며 최대 800픽셀로 크기를 확 줄여서 전송 속도를 높입니다.
+                    img.thumbnail((800, 800)) 
                     
                     prompt = """
                     당신은 한국 주식 증권사 앱의 캡쳐 화면을 분석하는 최고 수준의 AI 트레이딩 보조입니다.
