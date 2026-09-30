@@ -42,6 +42,8 @@ conn = st.connection(
 REQUIRED_COLUMNS = [
     "Trade_ID",
     "Date",
+    "Entry_Date",
+    "Exit_Date",
     "Ticker",
     "Buy_Amount",
     "Sell_Amount",
@@ -265,7 +267,58 @@ def get_krx_list():
 
 
 # ============================================================
-# 7. 거래 데이터 정리
+# 7. 날짜 유틸
+# ============================================================
+
+def parse_optional_date_series(series):
+
+    if series is None:
+        return pd.Series(dtype="datetime64[ns]")
+
+    cleaned = (
+        series
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    cleaned = cleaned.replace(
+        {
+            "nan": "",
+            "NaT": "",
+            "None": ""
+        }
+    )
+
+    return pd.to_datetime(
+        cleaned,
+        errors="coerce"
+    )
+
+
+def calculate_holding_days(entry_date, exit_date):
+
+    if (
+        pd.isna(entry_date)
+        or
+        pd.isna(exit_date)
+    ):
+        return np.nan
+
+    days = (
+        pd.Timestamp(exit_date).normalize()
+        -
+        pd.Timestamp(entry_date).normalize()
+    ).days
+
+    if days < 0:
+        return np.nan
+
+    return days
+
+
+# ============================================================
+# 8. 거래 데이터 정리
 # ============================================================
 
 def normalize_trade_dataframe(raw_df):
@@ -278,18 +331,22 @@ def normalize_trade_dataframe(raw_df):
 
     clean_df = raw_df.copy()
 
+    # --------------------------------------------------------
+    # 기존 Date는 반드시 유지
+    # --------------------------------------------------------
+
     if "Date" not in clean_df.columns:
         clean_df["Date"] = None
 
-    clean_df = clean_df.dropna(
-        subset=["Date"]
-    ).copy()
+    # --------------------------------------------------------
+    # 신규 날짜 컬럼 자동 생성
+    # --------------------------------------------------------
 
-    if clean_df.empty:
+    if "Entry_Date" not in clean_df.columns:
+        clean_df["Entry_Date"] = None
 
-        return pd.DataFrame(
-            columns=REQUIRED_COLUMNS
-        )
+    if "Exit_Date" not in clean_df.columns:
+        clean_df["Exit_Date"] = None
 
     defaults = {
         "Trade_ID": "",
@@ -308,6 +365,62 @@ def normalize_trade_dataframe(raw_df):
 
         if col not in clean_df.columns:
             clean_df[col] = default_value
+
+    # --------------------------------------------------------
+    # 날짜 변환
+    # --------------------------------------------------------
+
+    clean_df["Date"] = pd.to_datetime(
+        clean_df["Date"],
+        errors="coerce"
+    )
+
+    clean_df["Entry_Date"] = (
+        parse_optional_date_series(
+            clean_df["Entry_Date"]
+        )
+    )
+
+    clean_df["Exit_Date"] = (
+        parse_optional_date_series(
+            clean_df["Exit_Date"]
+        )
+    )
+
+    # 기존 데이터의 Date가 없고 Exit_Date만 있다면
+    # 분석 기준 Date를 Exit_Date로 복구
+    date_missing_mask = (
+        clean_df["Date"].isna()
+        &
+        clean_df["Exit_Date"].notna()
+    )
+
+    clean_df.loc[
+        date_missing_mask,
+        "Date"
+    ] = clean_df.loc[
+        date_missing_mask,
+        "Exit_Date"
+    ]
+
+    # 중요:
+    # 기존 Date를 Entry_Date로 추정하지 않는다.
+    # 기존 Date를 Exit_Date에도 자동 복사하지 않는다.
+    # 실제 과거 청산일을 사용자가 입력한 경우만 Holding 분석에 사용.
+
+    clean_df = clean_df.dropna(
+        subset=["Date"]
+    ).copy()
+
+    if clean_df.empty:
+
+        return pd.DataFrame(
+            columns=REQUIRED_COLUMNS
+        )
+
+    # --------------------------------------------------------
+    # 숫자 정리
+    # --------------------------------------------------------
 
     numeric_columns = [
         "P_L_Amount",
@@ -332,14 +445,9 @@ def normalize_trade_dataframe(raw_df):
             errors="coerce"
         ).fillna(0.0)
 
-    clean_df["Date"] = pd.to_datetime(
-        clean_df["Date"],
-        errors="coerce"
-    )
-
-    clean_df = clean_df.dropna(
-        subset=["Date"]
-    ).copy()
+    # --------------------------------------------------------
+    # 문자열 정리
+    # --------------------------------------------------------
 
     string_columns = [
         "Ticker",
@@ -361,6 +469,10 @@ def normalize_trade_dataframe(raw_df):
             clean_df[col].str.lower() == "nan",
             col
         ] = ""
+
+    # --------------------------------------------------------
+    # 과거 데이터 매수금액 복구
+    # --------------------------------------------------------
 
     recovery_mask = (
         (clean_df["Buy_Amount"] == 0)
@@ -404,6 +516,10 @@ def normalize_trade_dataframe(raw_df):
                 "P_L_Amount"
             ]
         )
+
+    # --------------------------------------------------------
+    # Trade ID 복구
+    # --------------------------------------------------------
 
     for position, idx in enumerate(
         clean_df.index
@@ -453,15 +569,27 @@ def prepare_for_sheet(dataframe):
 
     sheet_df = dataframe.copy()
 
-    sheet_df["Date"] = pd.to_datetime(
-        sheet_df["Date"],
-        errors="coerce"
-    ).dt.strftime("%Y-%m-%d")
-
     for col in REQUIRED_COLUMNS:
 
         if col not in sheet_df.columns:
             sheet_df[col] = ""
+
+    for col in [
+        "Date",
+        "Entry_Date",
+        "Exit_Date"
+    ]:
+
+        converted = pd.to_datetime(
+            sheet_df[col],
+            errors="coerce"
+        )
+
+        sheet_df[col] = converted.dt.strftime(
+            "%Y-%m-%d"
+        )
+
+        sheet_df[col] = sheet_df[col].fillna("")
 
     sheet_df = sheet_df[
         REQUIRED_COLUMNS
@@ -471,7 +599,8 @@ def prepare_for_sheet(dataframe):
         {
             np.nan: "",
             np.inf: "",
-            -np.inf: ""
+            -np.inf: "",
+            pd.NaT: ""
         }
     )
 
@@ -502,7 +631,11 @@ def load_data():
         )
 
 
-def migrate_trade_ids():
+# ============================================================
+# 9. 자동 데이터 구조 마이그레이션
+# ============================================================
+
+def migrate_trade_schema():
 
     try:
 
@@ -511,16 +644,18 @@ def migrate_trade_ids():
             ttl=0
         )
 
-        if raw_df.empty:
+        if raw_df is None or raw_df.empty:
             return
 
         needs_migration = False
 
-        if "Trade_ID" not in raw_df.columns:
+        for col in REQUIRED_COLUMNS:
 
-            needs_migration = True
+            if col not in raw_df.columns:
+                needs_migration = True
+                break
 
-        else:
+        if not needs_migration:
 
             ids = (
                 raw_df["Trade_ID"]
@@ -539,10 +674,8 @@ def migrate_trade_ids():
 
         if needs_migration:
 
-            migrated = (
-                normalize_trade_dataframe(
-                    raw_df
-                )
+            migrated = normalize_trade_dataframe(
+                raw_df
             )
 
             conn.update(
@@ -557,15 +690,10 @@ def migrate_trade_ids():
 
 
 # ============================================================
-# 8. MILESTONE 4 - TRADING COACH ENGINE
+# 10. Trading Edge 기본 계산
 # ============================================================
 
 def calculate_period_metrics(data):
-
-    """
-    어떤 기간의 거래 데이터가 들어와도
-    동일한 방식으로 핵심 Trading Edge 지표를 계산한다.
-    """
 
     empty_result = {
         "count": 0,
@@ -621,9 +749,9 @@ def calculate_period_metrics(data):
         else 0
     )
 
-    net_profit = (
-        work["P_L_Amount"].sum()
-    )
+    net_profit = work[
+        "P_L_Amount"
+    ].sum()
 
     profit_factor = (
         gross_profit
@@ -715,49 +843,188 @@ def calculate_period_metrics(data):
     )
 
     return {
-        "count":
-            count,
-
-        "win_rate":
-            win_rate,
-
-        "profit_factor":
-            profit_factor,
-
-        "reward_risk":
-            reward_risk,
-
-        "expectancy":
-            expectancy,
-
-        "avg_win_pct":
-            avg_win_pct,
-
-        "avg_loss_pct":
-            avg_loss_pct,
-
-        "gross_profit":
-            gross_profit,
-
-        "gross_loss":
-            gross_loss,
-
-        "net_profit":
-            net_profit,
-
-        "big_winner_threshold":
-            big_winner_threshold,
-
-        "big_winner_count":
-            big_winner_count,
-
-        "big_winner_rate":
-            big_winner_rate,
-
-        "big_winner_contribution":
-            big_winner_contribution
+        "count": count,
+        "win_rate": win_rate,
+        "profit_factor": profit_factor,
+        "reward_risk": reward_risk,
+        "expectancy": expectancy,
+        "avg_win_pct": avg_win_pct,
+        "avg_loss_pct": avg_loss_pct,
+        "gross_profit": gross_profit,
+        "gross_loss": gross_loss,
+        "net_profit": net_profit,
+        "big_winner_threshold": big_winner_threshold,
+        "big_winner_count": big_winner_count,
+        "big_winner_rate": big_winner_rate,
+        "big_winner_contribution": big_winner_contribution
     }
 
+
+# ============================================================
+# 11. Holding Period 계산
+# ============================================================
+
+def add_holding_period_columns(data):
+
+    work = data.copy()
+
+    work["Holding_Days"] = np.nan
+
+    valid_mask = (
+        work["Entry_Date"].notna()
+        &
+        work["Exit_Date"].notna()
+    )
+
+    if valid_mask.any():
+
+        holding_values = (
+            work.loc[
+                valid_mask,
+                "Exit_Date"
+            ].dt.normalize()
+            -
+            work.loc[
+                valid_mask,
+                "Entry_Date"
+            ].dt.normalize()
+        ).dt.days
+
+        holding_values = holding_values.where(
+            holding_values >= 0,
+            np.nan
+        )
+
+        work.loc[
+            valid_mask,
+            "Holding_Days"
+        ] = holding_values
+
+    return work
+
+
+def calculate_holding_metrics(
+    data,
+    big_winner_threshold=None
+):
+
+    empty_result = {
+        "valid_count": 0,
+        "coverage_rate": 0.0,
+        "avg_holding_days": 0.0,
+        "median_holding_days": 0.0,
+        "avg_win_holding_days": 0.0,
+        "avg_loss_holding_days": 0.0,
+        "avg_big_winner_holding_days": 0.0,
+        "big_winner_valid_count": 0
+    }
+
+    if data is None or data.empty:
+        return empty_result
+
+    work = add_holding_period_columns(
+        data
+    )
+
+    valid = work[
+        work["Holding_Days"].notna()
+    ].copy()
+
+    valid_count = len(valid)
+
+    coverage_rate = (
+        valid_count
+        / len(work)
+        * 100
+        if len(work) > 0
+        else 0
+    )
+
+    if valid.empty:
+
+        result = empty_result.copy()
+        result[
+            "coverage_rate"
+        ] = coverage_rate
+
+        return result
+
+    wins = valid[
+        valid["P_L_Amount"] > 0
+    ]
+
+    losses = valid[
+        valid["P_L_Amount"] < 0
+    ]
+
+    if big_winner_threshold is None:
+
+        metrics = calculate_period_metrics(
+            data
+        )
+
+        big_winner_threshold = metrics[
+            "big_winner_threshold"
+        ]
+
+    big_winners = valid[
+        (
+            valid["P_L_Amount"] > 0
+        )
+        &
+        (
+            valid["ROI_Percent"]
+            >=
+            big_winner_threshold
+        )
+    ]
+
+    return {
+        "valid_count":
+            valid_count,
+
+        "coverage_rate":
+            coverage_rate,
+
+        "avg_holding_days":
+            valid[
+                "Holding_Days"
+            ].mean(),
+
+        "median_holding_days":
+            valid[
+                "Holding_Days"
+            ].median(),
+
+        "avg_win_holding_days":
+            wins[
+                "Holding_Days"
+            ].mean()
+            if not wins.empty
+            else 0,
+
+        "avg_loss_holding_days":
+            losses[
+                "Holding_Days"
+            ].mean()
+            if not losses.empty
+            else 0,
+
+        "avg_big_winner_holding_days":
+            big_winners[
+                "Holding_Days"
+            ].mean()
+            if not big_winners.empty
+            else 0,
+
+        "big_winner_valid_count":
+            len(big_winners)
+    }
+
+
+# ============================================================
+# 12. 연승 / 연패
+# ============================================================
 
 def calculate_max_streaks(data):
 
@@ -843,22 +1110,23 @@ def calculate_current_streak(data):
             streak_type == "win"
             and value > 0
         ):
-
             streak += 1
 
         elif (
             streak_type == "loss"
             and value < 0
         ):
-
             streak += 1
 
         else:
-
             break
 
     return streak_type, streak
 
+
+# ============================================================
+# 13. Trading DNA
+# ============================================================
 
 def calculate_trading_dna(data):
 
@@ -893,7 +1161,6 @@ def calculate_trading_dna(data):
     losses = ordered[
         ordered["P_L_Amount"] < 0
     ].copy()
-
 
     # --------------------------------------------------------
     # 상위 10% 승자 집중도
@@ -943,9 +1210,8 @@ def calculate_trading_dna(data):
         top_n = 0
         top10_contribution = 0
 
-
     # --------------------------------------------------------
-    # 전체 Big Winner
+    # Big Winner
     # --------------------------------------------------------
 
     big_winner_threshold = (
@@ -959,9 +1225,8 @@ def calculate_trading_dna(data):
         >= big_winner_threshold
     ].copy()
 
-
     # --------------------------------------------------------
-    # 손실 / 연승 연패
+    # Risk
     # --------------------------------------------------------
 
     max_win_streak, max_loss_streak = (
@@ -996,9 +1261,8 @@ def calculate_trading_dna(data):
         else 0
     )
 
-
     # --------------------------------------------------------
-    # 최근 20 / 직전 20
+    # 최근 20
     # --------------------------------------------------------
 
     recent_n = min(
@@ -1019,6 +1283,10 @@ def calculate_trading_dna(data):
             recent_df
         )
     )
+
+    # --------------------------------------------------------
+    # 직전 20
+    # --------------------------------------------------------
 
     if total_count >= 40:
 
@@ -1054,14 +1322,13 @@ def calculate_trading_dna(data):
         )
     )
 
-
-    # --------------------------------------------------------
-    # 최근 vs 직전 변화
-    # --------------------------------------------------------
-
     has_previous = (
         len(previous_df) >= 5
     )
+
+    # --------------------------------------------------------
+    # 변화
+    # --------------------------------------------------------
 
     if has_previous:
 
@@ -1124,7 +1391,6 @@ def calculate_trading_dna(data):
             "big_winner_contribution": 0
         }
 
-
     # --------------------------------------------------------
     # Edge 상태
     # --------------------------------------------------------
@@ -1156,25 +1422,16 @@ def calculate_trading_dna(data):
         elif changes["reward_risk"] < -0.25:
             score -= 1
 
-        # 평균 손실률은 낮아지는 것이 좋음
         if changes["avg_loss_pct"] < -0.50:
             score += 1
 
         elif changes["avg_loss_pct"] > 0.50:
             score -= 1
 
-        if (
-            changes[
-                "big_winner_rate"
-            ] > 2
-        ):
+        if changes["big_winner_rate"] > 2:
             score += 1
 
-        elif (
-            changes[
-                "big_winner_rate"
-            ] < -2
-        ):
+        elif changes["big_winner_rate"] < -2:
             score -= 1
 
         if score >= 2:
@@ -1192,6 +1449,85 @@ def calculate_trading_dna(data):
             edge_status = "안정"
             edge_icon = "🟡"
 
+    # --------------------------------------------------------
+    # Holding Period DNA
+    # --------------------------------------------------------
+
+    total_holding = (
+        calculate_holding_metrics(
+            ordered,
+            big_winner_threshold
+        )
+    )
+
+    recent_holding = (
+        calculate_holding_metrics(
+            recent_df,
+            big_winner_threshold
+        )
+    )
+
+    previous_holding = (
+        calculate_holding_metrics(
+            previous_df,
+            big_winner_threshold
+        )
+    )
+
+    holding_changes = {
+        "avg_holding_days": 0.0,
+        "avg_win_holding_days": 0.0,
+        "avg_loss_holding_days": 0.0,
+        "avg_big_winner_holding_days": 0.0
+    }
+
+    has_holding_comparison = (
+        has_previous
+        and
+        recent_holding["valid_count"] >= 3
+        and
+        previous_holding["valid_count"] >= 3
+    )
+
+    if has_holding_comparison:
+
+        holding_changes = {
+            "avg_holding_days":
+                recent_holding[
+                    "avg_holding_days"
+                ]
+                -
+                previous_holding[
+                    "avg_holding_days"
+                ],
+
+            "avg_win_holding_days":
+                recent_holding[
+                    "avg_win_holding_days"
+                ]
+                -
+                previous_holding[
+                    "avg_win_holding_days"
+                ],
+
+            "avg_loss_holding_days":
+                recent_holding[
+                    "avg_loss_holding_days"
+                ]
+                -
+                previous_holding[
+                    "avg_loss_holding_days"
+                ],
+
+            "avg_big_winner_holding_days":
+                recent_holding[
+                    "avg_big_winner_holding_days"
+                ]
+                -
+                previous_holding[
+                    "avg_big_winner_holding_days"
+                ]
+        }
 
     # --------------------------------------------------------
     # DNA 유형
@@ -1267,7 +1603,6 @@ def calculate_trading_dna(data):
             "현재 기록에서는 여러 수익 패턴이 "
             "혼합되어 있습니다."
         )
-
 
     return {
         "total_count":
@@ -1372,12 +1707,27 @@ def calculate_trading_dna(data):
             dna_description,
 
         "big_winners":
-            big_winners
+            big_winners,
+
+        "total_holding":
+            total_holding,
+
+        "recent_holding":
+            recent_holding,
+
+        "previous_holding":
+            previous_holding,
+
+        "holding_changes":
+            holding_changes,
+
+        "has_holding_comparison":
+            has_holding_comparison
     }
 
 
 # ============================================================
-# 9. EDGE 변화 원인 분석
+# 14. EDGE 변화 원인 분석
 # ============================================================
 
 def detect_edge_drivers(dna):
@@ -1392,55 +1742,92 @@ def detect_edge_drivers(dna):
 
     c = dna["changes"]
 
-    drivers = []
-
-    # 긍정/부정 방향을 통일한 중요도 점수
-
     driver_candidates = [
         {
             "name": "승률",
-            "raw": c["win_rate"],
             "impact": c["win_rate"] / 5,
             "text":
                 f"승률 {c['win_rate']:+.1f}%p"
         },
         {
             "name": "Profit Factor",
-            "raw": c["profit_factor"],
-            "impact": c["profit_factor"] * 2,
+            "impact":
+                c["profit_factor"] * 2,
             "text":
                 f"PF {c['profit_factor']:+.2f}"
         },
         {
             "name": "손익비",
-            "raw": c["reward_risk"],
-            "impact": c["reward_risk"] * 1.5,
+            "impact":
+                c["reward_risk"] * 1.5,
             "text":
                 f"손익비 {c['reward_risk']:+.2f}"
         },
         {
             "name": "평균 수익률",
-            "raw": c["avg_win_pct"],
-            "impact": c["avg_win_pct"] / 2,
+            "impact":
+                c["avg_win_pct"] / 2,
             "text":
                 f"평균 수익률 {c['avg_win_pct']:+.2f}%p"
         },
         {
             "name": "평균 손실률",
-            "raw": c["avg_loss_pct"],
-            # 손실률 증가는 나쁜 변화
-            "impact": -c["avg_loss_pct"] / 2,
+            "impact":
+                -c["avg_loss_pct"] / 2,
             "text":
                 f"평균 손실률 {c['avg_loss_pct']:+.2f}%p"
         },
         {
             "name": "Big Winner 비율",
-            "raw": c["big_winner_rate"],
-            "impact": c["big_winner_rate"] / 4,
+            "impact":
+                c["big_winner_rate"] / 4,
             "text":
                 f"Big Winner 비율 {c['big_winner_rate']:+.1f}%p"
         }
     ]
+
+    # Holding 데이터가 충분하면 함께 비교
+    if dna[
+        "has_holding_comparison"
+    ]:
+
+        hc = dna[
+            "holding_changes"
+        ]
+
+        driver_candidates.append(
+            {
+                "name":
+                    "수익 거래 보유기간",
+
+                "impact":
+                    hc[
+                        "avg_win_holding_days"
+                    ] / 5,
+
+                "text":
+                    "수익 거래 평균 보유기간 "
+                    f"{hc['avg_win_holding_days']:+.1f}일"
+            }
+        )
+
+        # Big Winner 보유기간이 줄면
+        # 추세추종에서는 점검 가치가 있으므로 음의 방향
+        driver_candidates.append(
+            {
+                "name":
+                    "Big Winner 보유기간",
+
+                "impact":
+                    hc[
+                        "avg_big_winner_holding_days"
+                    ] / 5,
+
+                "text":
+                    "Big Winner 평균 보유기간 "
+                    f"{hc['avg_big_winner_holding_days']:+.1f}일"
+            }
+        )
 
     driver_candidates = sorted(
         driver_candidates,
@@ -1449,9 +1836,13 @@ def detect_edge_drivers(dna):
         reverse=True
     )
 
+    drivers = []
+
     for item in driver_candidates[:3]:
 
-        if abs(item["impact"]) < 0.15:
+        if abs(
+            item["impact"]
+        ) < 0.15:
             continue
 
         direction = (
@@ -1477,7 +1868,7 @@ def detect_edge_drivers(dna):
 
 
 # ============================================================
-# 10. 코칭 체크포인트
+# 15. 코칭 체크포인트
 # ============================================================
 
 def generate_coach_checkpoints(dna):
@@ -1487,10 +1878,6 @@ def generate_coach_checkpoints(dna):
     if not dna:
         return checkpoints
 
-    recent = dna[
-        "recent_metrics"
-    ]
-
     total = dna[
         "total_metrics"
     ]
@@ -1499,8 +1886,9 @@ def generate_coach_checkpoints(dna):
         "changes"
     ]
 
-
-    # 1. 손실 관리
+    # --------------------------------------------------------
+    # 손실 확대
+    # --------------------------------------------------------
 
     if (
         dna["has_previous"]
@@ -1513,11 +1901,12 @@ def generate_coach_checkpoints(dna):
         checkpoints.append(
             "🛡️ 최근 평균 손실률이 직전 구간보다 "
             f"{changes['avg_loss_pct']:+.2f}%p 확대됐습니다. "
-            "다음 거래에서는 손절 기준 이탈 여부를 기록하세요."
+            "다음 거래에서는 계획한 손절 범위를 벗어났는지 기록하세요."
         )
 
-
-    # 2. Big Winner 감소
+    # --------------------------------------------------------
+    # Big Winner 감소
+    # --------------------------------------------------------
 
     if (
         dna["has_previous"]
@@ -1530,12 +1919,12 @@ def generate_coach_checkpoints(dna):
         checkpoints.append(
             "🚀 최근 Big Winner 발생 비율이 "
             f"{abs(changes['big_winner_rate']):.1f}%p 감소했습니다. "
-            "수익 거래를 너무 빨리 청산하고 있지 않은지 "
-            "확인하세요."
+            "수익 거래의 청산 시점을 복기하세요."
         )
 
-
-    # 3. 평균 수익 감소
+    # --------------------------------------------------------
+    # 평균 수익 감소
+    # --------------------------------------------------------
 
     if (
         dna["has_previous"]
@@ -1548,11 +1937,53 @@ def generate_coach_checkpoints(dna):
         checkpoints.append(
             "💎 최근 평균 수익률이 직전 구간보다 "
             f"{abs(changes['avg_win_pct']):.2f}%p 낮아졌습니다. "
-            "큰 추세를 충분히 보유했는지 거래별로 확인하세요."
+            "승자 거래의 청산 행동이 달라졌는지 확인하세요."
         )
 
+    # --------------------------------------------------------
+    # Holding Period
+    # --------------------------------------------------------
 
-    # 4. PF 하락
+    if dna[
+        "has_holding_comparison"
+    ]:
+
+        holding_change = (
+            dna[
+                "holding_changes"
+            ][
+                "avg_win_holding_days"
+            ]
+        )
+
+        if holding_change <= -3:
+
+            checkpoints.append(
+                "⏱️ 최근 수익 거래의 평균 보유기간이 "
+                f"직전 구간보다 {abs(holding_change):.1f}일 짧아졌습니다. "
+                "조기 청산이 늘었는지 거래별 청산 이유를 확인하세요."
+            )
+
+        big_holding_change = (
+            dna[
+                "holding_changes"
+            ][
+                "avg_big_winner_holding_days"
+            ]
+        )
+
+        if big_holding_change <= -5:
+
+            checkpoints.append(
+                "🏆 최근 Big Winner의 평균 보유기간이 "
+                f"{abs(big_holding_change):.1f}일 감소했습니다. "
+                "큰 승자를 끝까지 보유하는 과정에 변화가 있었는지 "
+                "점검하세요."
+            )
+
+    # --------------------------------------------------------
+    # PF 하락
+    # --------------------------------------------------------
 
     if (
         dna["has_previous"]
@@ -1565,12 +1996,12 @@ def generate_coach_checkpoints(dna):
         checkpoints.append(
             "📉 최근 Profit Factor가 직전 구간보다 "
             f"{abs(changes['profit_factor']):.2f} 하락했습니다. "
-            "승률 하나보다 손실 크기와 Big Winner 감소를 "
-            "함께 확인하세요."
+            "손실 크기와 Big Winner 감소를 함께 확인하세요."
         )
 
-
-    # 5. 추세추종 특성
+    # --------------------------------------------------------
+    # 추세추종 구조
+    # --------------------------------------------------------
 
     if (
         total["reward_risk"] >= 2
@@ -1579,13 +2010,14 @@ def generate_coach_checkpoints(dna):
     ):
 
         checkpoints.append(
-            "🧬 당신의 장기 구조는 승률보다 손익비 의존도가 높습니다. "
-            "연패를 피하려 하기보다 손실 제한과 큰 승자 보유가 "
+            "🧬 장기 기록은 승률보다 손익비 의존도가 높습니다. "
+            "승률 자체보다 평균 손실 제한과 큰 승자 보유가 "
             "유지되는지 관찰하세요."
         )
 
-
-    # 6. 현재 연패
+    # --------------------------------------------------------
+    # 연패
+    # --------------------------------------------------------
 
     if (
         dna["current_streak_type"]
@@ -1597,26 +2029,23 @@ def generate_coach_checkpoints(dna):
         checkpoints.append(
             "⚠️ 현재 "
             f"{dna['current_streak']}연속 손실 구간입니다. "
-            "새로운 전략을 즉흥적으로 추가하기보다 최근 거래의 "
-            "진입 조건과 손실 크기 변화를 먼저 확인하세요."
+            "전략을 즉흥적으로 바꾸기보다 최근 진입 조건과 "
+            "손실 크기 변화를 먼저 복기하세요."
         )
-
-
-    # 7. 특별한 문제 없을 때
 
     if len(checkpoints) == 0:
 
         checkpoints.append(
-            "✅ 최근 통계에서 뚜렷한 구조 훼손 신호는 발견되지 않았습니다. "
-            "현재 매매 규칙을 유지하면서 다음 20거래를 계속 기록하세요."
+            "✅ 최근 통계에서 뚜렷한 구조 훼손 신호는 "
+            "발견되지 않았습니다. 현재 규칙을 유지하면서 "
+            "거래 데이터를 계속 축적하세요."
         )
-
 
     return checkpoints[:3]
 
 
 # ============================================================
-# 11. 기존 Trading DNA Insights
+# 16. 기존 Trading DNA Insights
 # ============================================================
 
 def generate_rule_based_insights(dna):
@@ -1626,16 +2055,19 @@ def generate_rule_based_insights(dna):
     if not dna:
         return insights
 
-    if dna["big_winner_contribution"] >= 60:
+    if dna[
+        "big_winner_contribution"
+    ] >= 60:
 
         insights.append(
             "🔥 큰 수익 거래가 전체 Gross Profit의 "
             f"{dna['big_winner_contribution']:.1f}%를 만들고 있습니다. "
-            "큰 승자를 너무 일찍 정리하면 전체 성과에 "
-            "큰 영향을 줄 수 있습니다."
+            "큰 승자의 관리가 전체 성과에 큰 영향을 주는 구조입니다."
         )
 
-    elif dna["big_winner_contribution"] >= 35:
+    elif dna[
+        "big_winner_contribution"
+    ] >= 35:
 
         insights.append(
             "🔥 Big Winner가 전체 수익에서 의미 있는 비중을 "
@@ -1649,7 +2081,9 @@ def generate_rule_based_insights(dna):
             "상대적으로 분산되어 있습니다."
         )
 
-    if dna["top10_contribution"] >= 40:
+    if dna[
+        "top10_contribution"
+    ] >= 40:
 
         insights.append(
             "💎 상위 수익 거래의 기여도가 높습니다. "
@@ -1678,10 +2112,12 @@ def generate_rule_based_insights(dna):
 
         insights.append(
             "⚠️ 최대 손실이 평균 손실보다 상당히 큽니다. "
-            "예외적 손실이 발생한 원인을 확인하세요."
+            "예외적 손실이 발생한 거래를 확인하세요."
         )
 
-    if dna["max_loss_streak"] >= 6:
+    if dna[
+        "max_loss_streak"
+    ] >= 6:
 
         insights.append(
             "🧠 과거 최대 연속 손실은 "
@@ -1694,7 +2130,7 @@ def generate_rule_based_insights(dna):
 
 
 # ============================================================
-# 12. ROI 구간 분석
+# 17. ROI 구간 분석
 # ============================================================
 
 def create_roi_bucket_table(data):
@@ -1761,7 +2197,7 @@ def create_roi_bucket_table(data):
 
 
 # ============================================================
-# 13. 비교 테이블
+# 18. 비교 테이블
 # ============================================================
 
 def create_edge_comparison_table(dna):
@@ -1784,71 +2220,90 @@ def create_edge_comparison_table(dna):
             "전체": total["win_rate"],
             "직전 20": previous["win_rate"],
             "최근 20": recent["win_rate"],
-            "변화": dna["changes"]["win_rate"],
-            "단위": "%"
+            "변화": dna["changes"]["win_rate"]
         },
         {
             "지표": "Profit Factor",
             "전체": total["profit_factor"],
             "직전 20": previous["profit_factor"],
             "최근 20": recent["profit_factor"],
-            "변화": dna["changes"]["profit_factor"],
-            "단위": ""
+            "변화": dna["changes"]["profit_factor"]
         },
         {
             "지표": "손익비",
             "전체": total["reward_risk"],
             "직전 20": previous["reward_risk"],
             "최근 20": recent["reward_risk"],
-            "변화": dna["changes"]["reward_risk"],
-            "단위": ""
+            "변화": dna["changes"]["reward_risk"]
         },
         {
             "지표": "기대값",
             "전체": total["expectancy"],
             "직전 20": previous["expectancy"],
             "최근 20": recent["expectancy"],
-            "변화": dna["changes"]["expectancy"],
-            "단위": "%"
+            "변화": dna["changes"]["expectancy"]
         },
         {
             "지표": "평균 수익률",
             "전체": total["avg_win_pct"],
             "직전 20": previous["avg_win_pct"],
             "최근 20": recent["avg_win_pct"],
-            "변화": dna["changes"]["avg_win_pct"],
-            "단위": "%"
+            "변화": dna["changes"]["avg_win_pct"]
         },
         {
             "지표": "평균 손실률",
             "전체": total["avg_loss_pct"],
             "직전 20": previous["avg_loss_pct"],
             "최근 20": recent["avg_loss_pct"],
-            "변화": dna["changes"]["avg_loss_pct"],
-            "단위": "%"
+            "변화": dna["changes"]["avg_loss_pct"]
         },
         {
             "지표": "Big Winner 비율",
             "전체": total["big_winner_rate"],
             "직전 20": previous["big_winner_rate"],
             "최근 20": recent["big_winner_rate"],
-            "변화": dna["changes"]["big_winner_rate"],
-            "단위": "%"
+            "변화": dna["changes"]["big_winner_rate"]
         }
     ]
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(
+        rows
+    )
 
 
 # ============================================================
-# 14. Gemini AI Coach
+# 19. Gemini AI Coach
 # ============================================================
 
-def build_ai_coach_prompt(dna, checkpoints, drivers):
+def build_ai_coach_prompt(
+    dna,
+    checkpoints,
+    drivers
+):
 
-    total = dna["total_metrics"]
-    previous = dna["previous_metrics"]
-    recent = dna["recent_metrics"]
+    total = dna[
+        "total_metrics"
+    ]
+
+    previous = dna[
+        "previous_metrics"
+    ]
+
+    recent = dna[
+        "recent_metrics"
+    ]
+
+    total_h = dna[
+        "total_holding"
+    ]
+
+    recent_h = dna[
+        "recent_holding"
+    ]
+
+    previous_h = dna[
+        "previous_holding"
+    ]
 
     driver_text = "\n".join(
         [
@@ -1869,14 +2324,15 @@ def build_ai_coach_prompt(dna, checkpoints, drivers):
 
 중요 규칙:
 1. 아래 숫자는 Python이 실제 거래 기록에서 계산한 값입니다.
-2. 새로운 숫자를 계산하거나 만들어내지 마세요.
+2. 새로운 숫자를 만들어내지 마세요.
 3. 매수/매도 종목 추천을 하지 마세요.
 4. 미래 수익을 예측하지 마세요.
 5. 사용자의 전략을 단정적으로 좋다/나쁘다 평가하지 마세요.
-6. 최근 행동 변화와 리스크 관리 관점에서만 해석하세요.
+6. 통계적 사실과 해석을 구분하세요.
 7. 한국어로 간결하고 실전적으로 작성하세요.
 8. 추세추종 전략에서는 낮은 승률 자체를 문제라고 단정하지 마세요.
-9. 큰 승자(Big Winner)와 평균 손실 관리의 변화를 중요하게 보세요.
+9. Big Winner, 평균 손실, 수익 거래 보유기간 변화를 중요하게 보세요.
+10. 보유기간 변화와 성과 변화가 동시에 나타나더라도 인과관계라고 단정하지 마세요.
 
 [Trading DNA]
 유형: {dna['dna_type']}
@@ -1912,6 +2368,26 @@ PF: {recent['profit_factor']:.2f}
 평균 손실률: {recent['avg_loss_pct']:.2f}%
 Big Winner 비율: {recent['big_winner_rate']:.2f}%
 
+[Holding Period DNA - 전체]
+보유기간 데이터 존재 거래수: {total_h['valid_count']}
+보유기간 데이터 커버리지: {total_h['coverage_rate']:.1f}%
+전체 평균 보유기간: {total_h['avg_holding_days']:.1f}일
+수익 거래 평균 보유기간: {total_h['avg_win_holding_days']:.1f}일
+손실 거래 평균 보유기간: {total_h['avg_loss_holding_days']:.1f}일
+Big Winner 평균 보유기간: {total_h['avg_big_winner_holding_days']:.1f}일
+
+[Holding Period DNA - 직전 구간]
+유효 거래수: {previous_h['valid_count']}
+수익 거래 평균 보유기간: {previous_h['avg_win_holding_days']:.1f}일
+손실 거래 평균 보유기간: {previous_h['avg_loss_holding_days']:.1f}일
+Big Winner 평균 보유기간: {previous_h['avg_big_winner_holding_days']:.1f}일
+
+[Holding Period DNA - 최근 구간]
+유효 거래수: {recent_h['valid_count']}
+수익 거래 평균 보유기간: {recent_h['avg_win_holding_days']:.1f}일
+손실 거래 평균 보유기간: {recent_h['avg_loss_holding_days']:.1f}일
+Big Winner 평균 보유기간: {recent_h['avg_big_winner_holding_days']:.1f}일
+
 [Python이 감지한 주요 변화]
 {driver_text}
 
@@ -1928,6 +2404,10 @@ Big Winner 비율: {recent['big_winner_rate']:.2f}%
 
 ### 🔍 최근 달라진 점
 가장 중요한 변화 1~3개.
+
+### ⏱️ Holding Period 관찰
+보유기간 데이터가 충분한 경우에만 의미 있는 관찰을 작성하세요.
+데이터가 부족하면 데이터가 더 필요하다고 명확히 작성하세요.
 
 ### 🎯 다음 10거래 체크포인트
 구체적으로 관찰할 행동 3개 이하.
@@ -1968,6 +2448,7 @@ def run_ai_coach(
     )
 
     if not response.parts:
+
         raise ValueError(
             "AI Coach 응답이 없습니다."
         )
@@ -1976,10 +2457,10 @@ def run_ai_coach(
 
 
 # ============================================================
-# 15. 데이터 로딩
+# 20. 데이터 로딩
 # ============================================================
 
-migrate_trade_ids()
+migrate_trade_schema()
 
 df = load_data()
 
@@ -1987,7 +2468,7 @@ krx_list = get_krx_list()
 
 
 # ============================================================
-# 16. 사이드바 AI 캡처
+# 21. 사이드바 AI 캡처
 # ============================================================
 
 st.sidebar.header(
@@ -2200,11 +2681,15 @@ with st.sidebar.expander(
 
 
 # ============================================================
-# 17. 신규 거래 입력
+# 22. 신규 거래 입력
 # ============================================================
 
 if "form_reset_trigger" not in st.session_state:
-    st.session_state["form_reset_trigger"] = 0
+
+    st.session_state[
+        "form_reset_trigger"
+    ] = 0
+
 
 fc = st.session_state[
     "form_reset_trigger"
@@ -2246,10 +2731,35 @@ with st.sidebar.form(
     clear_on_submit=True
 ):
 
-    date = st.date_input(
-        "일자",
-        datetime.today()
+    entry_date = st.date_input(
+        "📥 진입일",
+        datetime.today(),
+        key=f"entry_date_{fc}"
     )
+
+    exit_date = st.date_input(
+        "📤 청산일",
+        datetime.today(),
+        key=f"exit_date_{fc}"
+    )
+
+    holding_preview = (
+        exit_date
+        -
+        entry_date
+    ).days
+
+    if holding_preview >= 0:
+
+        st.caption(
+            f"⏱️ 보유기간: {holding_preview}일"
+        )
+
+    else:
+
+        st.error(
+            "청산일은 진입일보다 빠를 수 없습니다."
+        )
 
     ticker = st.text_input(
         "종목명",
@@ -2298,6 +2808,8 @@ with st.sidebar.form(
 수익/손실금: **{pn_l:+,.0f}원**
 
 매도금액: **{sell_amt:,.0f}원**
+
+보유기간: **{max(0, holding_preview)}일**
 """
         )
 
@@ -2328,6 +2840,12 @@ with st.sidebar.form(
                 "매수금액을 입력해주세요."
             )
 
+        elif exit_date < entry_date:
+
+            st.error(
+                "청산일은 진입일보다 빠를 수 없습니다."
+            )
+
         else:
 
             try:
@@ -2337,8 +2855,20 @@ with st.sidebar.form(
                         "Trade_ID":
                             create_new_trade_id(),
 
+                        # 기존 시스템 호환용 Date는
+                        # 청산일을 기준으로 저장
                         "Date":
-                            date.strftime(
+                            exit_date.strftime(
+                                "%Y-%m-%d"
+                            ),
+
+                        "Entry_Date":
+                            entry_date.strftime(
+                                "%Y-%m-%d"
+                            ),
+
+                        "Exit_Date":
+                            exit_date.strftime(
                                 "%Y-%m-%d"
                             ),
 
@@ -2458,7 +2988,7 @@ else:
 
 
 # ============================================================
-# 18. 메인
+# 23. 메인
 # ============================================================
 
 st.title(
@@ -2476,10 +3006,16 @@ if df.empty:
     st.stop()
 
 
-analysis_df = df.copy()
+analysis_df = (
+    add_holding_period_columns(
+        df.copy()
+    )
+)
 
 analysis_df["Year"] = (
-    analysis_df["Date"].dt.year
+    analysis_df[
+        "Date"
+    ].dt.year
 )
 
 analysis_df["YearMonth"] = (
@@ -2848,7 +3384,7 @@ with tab1:
 
 
 # ============================================================
-# TAB 2 - 월별
+# TAB 2
 # ============================================================
 
 with tab2:
@@ -2954,7 +3490,7 @@ with tab2:
 
 
 # ============================================================
-# TAB 3 - 연도별
+# TAB 3
 # ============================================================
 
 with tab3:
@@ -3079,6 +3615,9 @@ with tab4:
         [
             [
                 "Date",
+                "Entry_Date",
+                "Exit_Date",
+                "Holding_Days",
                 "Ticker",
                 "Buy_Amount",
                 "Sell_Amount",
@@ -3090,18 +3629,36 @@ with tab4:
         .copy()
     )
 
+    original_table = original_table.rename(
+        columns={
+            "Date": "기존 거래일",
+            "Entry_Date": "진입일",
+            "Exit_Date": "청산일",
+            "Holding_Days": "보유일",
+            "Ticker": "종목",
+            "Buy_Amount": "매수금액",
+            "Sell_Amount": "매도금액",
+            "P_L_Amount": "손익",
+            "ROI_Percent": "수익률",
+            "Memo": "메모"
+        }
+    )
+
     st.dataframe(
         original_table.style.format(
             {
-                "Buy_Amount":
+                "매수금액":
                     "{:,.0f}원",
-                "Sell_Amount":
+                "매도금액":
                     "{:,.0f}원",
-                "P_L_Amount":
+                "손익":
                     "{:+,.0f}원",
-                "ROI_Percent":
-                    "{:+.2f}%"
-            }
+                "수익률":
+                    "{:+.2f}%",
+                "보유일":
+                    "{:.0f}일"
+            },
+            na_rep="-"
         ),
         use_container_width=True
     )
@@ -3562,7 +4119,7 @@ with tab8:
         )
 
         d2.metric(
-            "거래일",
+            "청산 기준일",
             selected[
                 "Date"
             ].strftime(
@@ -3580,6 +4137,56 @@ with tab8:
             f"{selected['P_L_Amount']:+,.0f}원"
         )
 
+        h1, h2, h3 = (
+            st.columns(3)
+        )
+
+        h1.metric(
+            "진입일",
+            (
+                selected[
+                    "Entry_Date"
+                ].strftime(
+                    "%Y-%m-%d"
+                )
+                if pd.notna(
+                    selected[
+                        "Entry_Date"
+                    ]
+                )
+                else "미입력"
+            )
+        )
+
+        h2.metric(
+            "청산일",
+            (
+                selected[
+                    "Exit_Date"
+                ].strftime(
+                    "%Y-%m-%d"
+                )
+                if pd.notna(
+                    selected[
+                        "Exit_Date"
+                    ]
+                )
+                else "미입력"
+            )
+        )
+
+        h3.metric(
+            "보유기간",
+            (
+                f"{selected['Holding_Days']:.0f}일"
+                if pd.notna(
+                    selected[
+                        "Holding_Days"
+                    ]
+                )
+                else "미계산"
+            )
+        )
 
         st.divider()
 
@@ -3587,15 +4194,52 @@ with tab8:
             "### ✏️ 거래 수정"
         )
 
+        default_entry = (
+            selected[
+                "Entry_Date"
+            ].date()
+            if pd.notna(
+                selected[
+                    "Entry_Date"
+                ]
+            )
+            else
+            selected[
+                "Date"
+            ].date()
+        )
+
+        default_exit = (
+            selected[
+                "Exit_Date"
+            ].date()
+            if pd.notna(
+                selected[
+                    "Exit_Date"
+                ]
+            )
+            else
+            selected[
+                "Date"
+            ].date()
+        )
+
         with st.form(
             f"edit_{selected_trade_id}"
         ):
 
-            edit_date = st.date_input(
-                "거래일",
-                value=selected[
-                    "Date"
-                ].date()
+            edit_entry_date = (
+                st.date_input(
+                    "📥 진입일",
+                    value=default_entry
+                )
+            )
+
+            edit_exit_date = (
+                st.date_input(
+                    "📤 청산일",
+                    value=default_exit
+                )
             )
 
             edit_ticker = st.text_input(
@@ -3649,114 +4293,154 @@ with tab8:
                 edit_pl
             )
 
+            edit_holding = (
+                edit_exit_date
+                -
+                edit_entry_date
+            ).days
+
+            if edit_holding >= 0:
+
+                st.caption(
+                    f"⏱️ 수정 후 보유기간: {edit_holding}일"
+                )
+
+            else:
+
+                st.error(
+                    "청산일은 진입일보다 빠를 수 없습니다."
+                )
+
             if st.form_submit_button(
                 "💾 수정 내용 저장",
                 use_container_width=True
             ):
 
-                try:
+                if edit_exit_date < edit_entry_date:
 
-                    live_raw = conn.read(
-                        worksheet=0,
-                        ttl=0
+                    st.error(
+                        "청산일은 진입일보다 빠를 수 없습니다."
                     )
 
-                    live_df = (
-                        normalize_trade_dataframe(
-                            live_raw
-                        )
-                    )
+                else:
 
-                    mask = (
-                        live_df[
-                            "Trade_ID"
-                        ].astype(str)
-                        ==
-                        str(
-                            selected_trade_id
-                        )
-                    )
+                    try:
 
-                    if not mask.any():
-
-                        st.error(
-                            "거래를 찾을 수 없습니다."
-                        )
-
-                    else:
-
-                        idx = (
-                            live_df[
-                                mask
-                            ].index[0]
-                        )
-
-                        live_df.at[
-                            idx,
-                            "Date"
-                        ] = pd.Timestamp(
-                            edit_date
-                        )
-
-                        live_df.at[
-                            idx,
-                            "Ticker"
-                        ] = (
-                            edit_ticker.strip()
-                        )
-
-                        live_df.at[
-                            idx,
-                            "Buy_Amount"
-                        ] = float(
-                            edit_buy
-                        )
-
-                        live_df.at[
-                            idx,
-                            "ROI_Percent"
-                        ] = float(
-                            edit_roi
-                        )
-
-                        live_df.at[
-                            idx,
-                            "P_L_Amount"
-                        ] = float(
-                            edit_pl
-                        )
-
-                        live_df.at[
-                            idx,
-                            "Sell_Amount"
-                        ] = float(
-                            edit_sell
-                        )
-
-                        live_df.at[
-                            idx,
-                            "Memo"
-                        ] = edit_memo
-
-                        conn.update(
+                        live_raw = conn.read(
                             worksheet=0,
-                            data=prepare_for_sheet(
-                                live_df
+                            ttl=0
+                        )
+
+                        live_df = (
+                            normalize_trade_dataframe(
+                                live_raw
                             )
                         )
 
-                        st.success(
-                            "✅ 거래 수정 완료!"
+                        mask = (
+                            live_df[
+                                "Trade_ID"
+                            ].astype(str)
+                            ==
+                            str(
+                                selected_trade_id
+                            )
                         )
 
-                        st.rerun()
+                        if not mask.any():
 
-                except Exception as e:
+                            st.error(
+                                "거래를 찾을 수 없습니다."
+                            )
 
-                    st.error(
-                        f"수정 실패: {e}"
-                    )
+                        else:
 
+                            idx = (
+                                live_df[
+                                    mask
+                                ].index[0]
+                            )
+
+                            # Date는 앞으로 청산일 기준
+                            live_df.at[
+                                idx,
+                                "Date"
+                            ] = pd.Timestamp(
+                                edit_exit_date
+                            )
+
+                            live_df.at[
+                                idx,
+                                "Entry_Date"
+                            ] = pd.Timestamp(
+                                edit_entry_date
+                            )
+
+                            live_df.at[
+                                idx,
+                                "Exit_Date"
+                            ] = pd.Timestamp(
+                                edit_exit_date
+                            )
+
+                            live_df.at[
+                                idx,
+                                "Ticker"
+                            ] = (
+                                edit_ticker.strip()
+                            )
+
+                            live_df.at[
+                                idx,
+                                "Buy_Amount"
+                            ] = float(
+                                edit_buy
+                            )
+
+                            live_df.at[
+                                idx,
+                                "ROI_Percent"
+                            ] = float(
+                                edit_roi
+                            )
+
+                            live_df.at[
+                                idx,
+                                "P_L_Amount"
+                            ] = float(
+                                edit_pl
+                            )
+
+                            live_df.at[
+                                idx,
+                                "Sell_Amount"
+                            ] = float(
+                                edit_sell
+                            )
+
+                            live_df.at[
+                                idx,
+                                "Memo"
+                            ] = edit_memo
+
+                            conn.update(
+                                worksheet=0,
+                                data=prepare_for_sheet(
+                                    live_df
+                                )
+                            )
+
+                            st.success(
+                                "✅ 거래 수정 완료!"
+                            )
+
+                            st.rerun()
+
+                    except Exception as e:
+
+                        st.error(
+                            f"수정 실패: {e}"
+                        )
 
         st.divider()
 
@@ -3819,7 +4503,7 @@ with tab8:
 
 
 # ============================================================
-# TAB 9 - MILESTONE 4 TRADING DNA
+# TAB 9 - TRADING DNA + HOLDING PERIOD DNA
 # ============================================================
 
 with tab9:
@@ -3829,8 +4513,8 @@ with tab9:
     )
 
     st.caption(
-        "장기 Trading DNA와 최근 Edge 변화를 "
-        "실제 거래 데이터로 추적합니다."
+        "장기 Trading DNA, 최근 Edge 변화, "
+        "보유기간 행동을 실제 거래 데이터로 추적합니다."
     )
 
     dna = (
@@ -3838,7 +4522,6 @@ with tab9:
             analysis_df
         )
     )
-
 
     # --------------------------------------------------------
     # DNA TYPE
@@ -3855,7 +4538,6 @@ with tab9:
     st.caption(
         f"{dna['total_count']:,}건의 거래 기록 기반"
     )
-
 
     # --------------------------------------------------------
     # 핵심 DNA
@@ -3889,9 +4571,7 @@ with tab9:
         f"{dna['expectancy']:+.2f}%"
     )
 
-
     st.divider()
-
 
     # --------------------------------------------------------
     # Big Winner
@@ -3925,22 +4605,25 @@ with tab9:
         f"+{dna['big_winner_threshold']:.2f}%"
     )
 
-
     if not dna[
         "big_winners"
     ].empty:
 
         big_table = (
-            dna[
-                "big_winners"
-            ]
+            add_holding_period_columns(
+                dna[
+                    "big_winners"
+                ]
+            )
             .sort_values(
                 "P_L_Amount",
                 ascending=False
             )
             [
                 [
-                    "Date",
+                    "Entry_Date",
+                    "Exit_Date",
+                    "Holding_Days",
                     "Ticker",
                     "ROI_Percent",
                     "P_L_Amount"
@@ -3951,18 +4634,221 @@ with tab9:
         st.dataframe(
             big_table.style.format(
                 {
+                    "Holding_Days":
+                        "{:.0f}일",
                     "ROI_Percent":
                         "{:+.2f}%",
                     "P_L_Amount":
                         "{:+,.0f}원"
-                }
+                },
+                na_rep="-"
             ),
             use_container_width=True
         )
 
-
     st.divider()
 
+    # --------------------------------------------------------
+    # HOLDING PERIOD DNA
+    # --------------------------------------------------------
+
+    st.markdown(
+        "### ⏱️ Holding Period DNA"
+    )
+
+    total_h = dna[
+        "total_holding"
+    ]
+
+    recent_h = dna[
+        "recent_holding"
+    ]
+
+    previous_h = dna[
+        "previous_holding"
+    ]
+
+    hp1, hp2, hp3, hp4 = (
+        st.columns(4)
+    )
+
+    hp1.metric(
+        "📈 수익 거래 평균 보유",
+        (
+            f"{total_h['avg_win_holding_days']:.1f}일"
+            if total_h["valid_count"] > 0
+            else "-"
+        )
+    )
+
+    hp2.metric(
+        "📉 손실 거래 평균 보유",
+        (
+            f"{total_h['avg_loss_holding_days']:.1f}일"
+            if total_h["valid_count"] > 0
+            else "-"
+        )
+    )
+
+    hp3.metric(
+        "🏆 Big Winner 평균 보유",
+        (
+            f"{total_h['avg_big_winner_holding_days']:.1f}일"
+            if total_h["big_winner_valid_count"] > 0
+            else "-"
+        )
+    )
+
+    hp4.metric(
+        "🗂️ 보유기간 데이터",
+        f"{total_h['valid_count']}건",
+        f"{total_h['coverage_rate']:.1f}% 입력"
+    )
+
+    if total_h[
+        "valid_count"
+    ] == 0:
+
+        st.info(
+            "아직 진입일·청산일이 입력된 과거 거래가 없습니다. "
+            "앞으로 신규 거래부터 자동으로 보유기간 데이터가 쌓입니다."
+        )
+
+    elif total_h[
+        "coverage_rate"
+    ] < 50:
+
+        st.warning(
+            "현재 보유기간 분석은 일부 거래만 대상으로 합니다. "
+            f"전체 거래 중 {total_h['coverage_rate']:.1f}%에 "
+            "진입일·청산일 데이터가 있습니다."
+        )
+
+    else:
+
+        st.success(
+            "✅ Holding Period 분석에 사용할 날짜 데이터가 "
+            f"{total_h['valid_count']}건 축적되어 있습니다."
+        )
+
+    if dna[
+        "has_holding_comparison"
+    ]:
+
+        st.markdown(
+            "#### 🔬 직전 구간 vs 최근 구간"
+        )
+
+        holding_compare = pd.DataFrame(
+            [
+                {
+                    "지표":
+                        "전체 평균 보유기간",
+
+                    "직전 구간":
+                        previous_h[
+                            "avg_holding_days"
+                        ],
+
+                    "최근 구간":
+                        recent_h[
+                            "avg_holding_days"
+                        ],
+
+                    "변화":
+                        dna[
+                            "holding_changes"
+                        ][
+                            "avg_holding_days"
+                        ]
+                },
+                {
+                    "지표":
+                        "수익 거래 평균 보유기간",
+
+                    "직전 구간":
+                        previous_h[
+                            "avg_win_holding_days"
+                        ],
+
+                    "최근 구간":
+                        recent_h[
+                            "avg_win_holding_days"
+                        ],
+
+                    "변화":
+                        dna[
+                            "holding_changes"
+                        ][
+                            "avg_win_holding_days"
+                        ]
+                },
+                {
+                    "지표":
+                        "손실 거래 평균 보유기간",
+
+                    "직전 구간":
+                        previous_h[
+                            "avg_loss_holding_days"
+                        ],
+
+                    "최근 구간":
+                        recent_h[
+                            "avg_loss_holding_days"
+                        ],
+
+                    "변화":
+                        dna[
+                            "holding_changes"
+                        ][
+                            "avg_loss_holding_days"
+                        ]
+                },
+                {
+                    "지표":
+                        "Big Winner 평균 보유기간",
+
+                    "직전 구간":
+                        previous_h[
+                            "avg_big_winner_holding_days"
+                        ],
+
+                    "최근 구간":
+                        recent_h[
+                            "avg_big_winner_holding_days"
+                        ],
+
+                    "변화":
+                        dna[
+                            "holding_changes"
+                        ][
+                            "avg_big_winner_holding_days"
+                        ]
+                }
+            ]
+        )
+
+        st.dataframe(
+            holding_compare.style.format(
+                {
+                    "직전 구간":
+                        "{:.1f}일",
+                    "최근 구간":
+                        "{:.1f}일",
+                    "변화":
+                        "{:+.1f}일"
+                }
+            ),
+            use_container_width=True,
+            hide_index=True
+        )
+
+    st.caption(
+        "※ 보유기간 변화와 수익률 변화가 함께 나타나더라도 "
+        "인과관계로 단정하지 않고 복기 신호로 사용합니다."
+    )
+
+    st.divider()
 
     # --------------------------------------------------------
     # Risk DNA
@@ -3996,12 +4882,10 @@ with tab9:
         f"{dna['max_win_streak']}회"
     )
 
-
     st.divider()
 
-
     # --------------------------------------------------------
-    # NEW - EDGE STATUS
+    # EDGE STATUS
     # --------------------------------------------------------
 
     st.markdown(
@@ -4015,10 +4899,6 @@ with tab9:
 
     recent = dna[
         "recent_metrics"
-    ]
-
-    previous = dna[
-        "previous_metrics"
     ]
 
     c1, c2, c3, c4 = (
@@ -4065,16 +4945,13 @@ with tab9:
         )
     )
 
-
-    # --------------------------------------------------------
-    # 전체 / 직전 / 최근 비교
-    # --------------------------------------------------------
-
     st.markdown(
         "#### 🔬 전체 vs 직전 20 vs 최근 20"
     )
 
-    if dna["has_previous"]:
+    if dna[
+        "has_previous"
+    ]:
 
         comparison = (
             create_edge_comparison_table(
@@ -4101,7 +4978,6 @@ with tab9:
             "직전 구간과 안정적으로 비교하려면 "
             "최소 25~40건 정도의 거래 기록을 권장합니다."
         )
-
 
     # --------------------------------------------------------
     # 변화 원인
@@ -4148,9 +5024,7 @@ with tab9:
             "감지되지 않았습니다."
         )
 
-
     st.divider()
-
 
     # --------------------------------------------------------
     # ROI 구간
@@ -4216,9 +5090,7 @@ with tab9:
             hide_index=True
         )
 
-
     st.divider()
-
 
     # --------------------------------------------------------
     # Rule Based Coach
@@ -4240,9 +5112,8 @@ with tab9:
             f"- {insight}"
         )
 
-
     # --------------------------------------------------------
-    # NEW - 행동 체크포인트
+    # 행동 체크포인트
     # --------------------------------------------------------
 
     st.markdown(
@@ -4264,12 +5135,10 @@ with tab9:
             f"**{index}.** {checkpoint}"
         )
 
-
     st.divider()
 
-
     # --------------------------------------------------------
-    # NEW - REAL AI COACH
+    # REAL AI COACH
     # --------------------------------------------------------
 
     st.markdown(
@@ -4281,7 +5150,16 @@ with tab9:
         "AI는 계산된 숫자만 해석합니다."
     )
 
-    if not api_key:
+    coach_api_key = (
+        st.session_state
+        .get(
+            "sidebar_api",
+            ""
+        )
+        .strip()
+    )
+
+    if not coach_api_key:
 
         st.info(
             "👈 사이드바의 Gemini API Key를 입력하면 "
@@ -4297,14 +5175,14 @@ with tab9:
         ):
 
             with st.spinner(
-                "AI Coach가 Trading DNA와 최근 Edge 변화를 분석 중입니다..."
+                "AI Coach가 Trading DNA와 Holding Period를 분석 중입니다..."
             ):
 
                 try:
 
                     ai_report = (
                         run_ai_coach(
-                            api_key,
+                            coach_api_key,
                             dna,
                             checkpoints,
                             drivers
@@ -4317,18 +5195,32 @@ with tab9:
 
                 except Exception as e:
 
-                    st.error(
-                        "🚨 AI Coach 분석에 실패했습니다."
-                    )
+                    error_text = str(e)
+
+                    if (
+                        "429" in error_text
+                        or
+                        "quota" in error_text.lower()
+                    ):
+
+                        st.error(
+                            "🚨 Gemini API 사용량 한도에 도달했습니다. "
+                            "잠시 후 다시 시도해주세요."
+                        )
+
+                    else:
+
+                        st.error(
+                            "🚨 AI Coach 분석에 실패했습니다."
+                        )
 
                     with st.expander(
                         "오류 확인"
                     ):
 
                         st.write(
-                            str(e)
+                            error_text
                         )
-
 
         if st.session_state.get(
             "ai_coach_report"
@@ -4344,8 +5236,7 @@ with tab9:
                 ]
             )
 
-
     st.caption(
         "⚠️ Trading Coach는 투자 추천이 아니라 "
         "본인의 매매 기록과 행동을 복기하기 위한 분석 도구입니다."
-        )
+    )
