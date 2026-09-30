@@ -4,28 +4,33 @@ import numpy as np
 import yfinance as yf
 import FinanceDataReader as fdr
 import altair as alt
+
 from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
+
+import random
 import json
 import re
+import hashlib
+
 import google.generativeai as genai
 from PIL import Image
 
 
-# =========================================================
-# 0. PAGE CONFIG
-# =========================================================
+# ============================================================
+# 1. 페이지 설정
+# ============================================================
 
 st.set_page_config(
-    page_title="Trading Master 2.0",
+    page_title="Trading Master Dashboard",
     page_icon="💎",
     layout="wide"
 )
 
 
-# =========================================================
-# 1. GOOGLE SHEETS CONNECTION
-# =========================================================
+# ============================================================
+# 2. Google Sheets 연결
+# ============================================================
 
 conn = st.connection(
     "gsheets",
@@ -33,441 +38,204 @@ conn = st.connection(
 )
 
 
-# =========================================================
-# 2. DATA SCHEMA
-# =========================================================
-
-# STEP 1
-# 거래 1건을 단순한 "수익률 기록"이 아니라
-# 하나의 완전한 트레이딩 데이터로 저장한다.
+# ============================================================
+# 3. 기본 컬럼 구조
+# ============================================================
 
 REQUIRED_COLUMNS = [
     "Trade_ID",
-
-    # 날짜
-    "Entry_Date",
-    "Exit_Date",
-
-    # 종목
+    "Date",
     "Ticker",
-
-    # 가격
-    "Entry_Price",
-    "Exit_Price",
-
-    # 금액
     "Buy_Amount",
     "Sell_Amount",
     "P_L_Amount",
-
-    # 성과
     "ROI_Percent",
-
-    # Risk / Reward
-    "Stop_Price",
-    "Target_Price",
-    "Risk_Amount",
-    "R_Multiple",
-
-    # 시간
-    "Holding_Days",
-
-    # 전략
-    "Strategy",
-    "Entry_Reason",
-
-    # 심리
+    "Mistake_Tags",
     "Emotion",
     "Discipline",
-
-    # 실수
-    "Mistake_Tags",
-
-    # 기타
     "Memo"
 ]
 
 
-# =========================================================
-# 3. DEFAULT DATAFRAME
-# =========================================================
+# ============================================================
+# 4. 기존 거래용 안정적인 Trade_ID 생성
+# ============================================================
 
-def empty_trade_df():
-    return pd.DataFrame(columns=REQUIRED_COLUMNS)
-
-
-# =========================================================
-# 4. HELPER FUNCTIONS
-# =========================================================
-
-def safe_float(value, default=0.0):
-    try:
-        if value is None:
-            return default
-
-        if pd.isna(value):
-            return default
-
-        value = str(value)
-        value = value.replace(",", "")
-        value = value.replace("%", "")
-
-        return float(value)
-
-    except Exception:
-        return default
-
-
-def safe_int(value, default=0):
-    try:
-        return int(float(safe_float(value, default)))
-    except Exception:
-        return default
-
-
-def generate_trade_id():
+def create_legacy_trade_id(row, index):
     """
-    거래 ID 생성
+    기존 Google Sheet에 Trade_ID가 없는 거래를 위한 ID.
+
+    random ID를 사용하면 매번 앱을 새로 실행할 때 ID가 바뀌므로
+    기존 거래의 주요 데이터를 이용해 동일한 ID를 만들도록 한다.
     """
 
-    now = datetime.now()
-
-    return now.strftime(
-        "%Y%m%d%H%M%S%f"
-    )[:-3]
-
-
-# =========================================================
-# 5. DATA MIGRATION
-# =========================================================
-
-def migrate_dataframe(df):
-    """
-    기존 Google Sheets 데이터를 새로운 구조로 변환한다.
-
-    기존 버전:
-        Date
-        Ticker
-        Buy_Amount
-        Sell_Amount
-        P_L_Amount
-        ROI_Percent
-        Mistake_Tags
-        Emotion
-        Discipline
-        Memo
-
-    새로운 버전:
-        Entry_Date
-        Exit_Date
-        Entry_Price
-        Exit_Price
-        Stop_Price
-        Target_Price
-        Risk_Amount
-        R_Multiple
-        Holding_Days
-        Strategy
-        Entry_Reason
-        ...
-    """
-
-    if df is None or df.empty:
-        return empty_trade_df()
-
-    df = df.copy()
-
-    # -----------------------------------------------------
-    # 기존 Date → Entry_Date
-    # -----------------------------------------------------
-
-    if "Entry_Date" not in df.columns:
-
-        if "Date" in df.columns:
-            df["Entry_Date"] = df["Date"]
-
-        else:
-            df["Entry_Date"] = datetime.today().strftime(
-                "%Y-%m-%d"
-            )
-
-    # -----------------------------------------------------
-    # Exit_Date
-    # -----------------------------------------------------
-
-    if "Exit_Date" not in df.columns:
-        df["Exit_Date"] = df["Entry_Date"]
-
-    # -----------------------------------------------------
-    # 숫자 컬럼
-    # -----------------------------------------------------
-
-    numeric_columns = [
-        "Entry_Price",
-        "Exit_Price",
-        "Buy_Amount",
-        "Sell_Amount",
-        "P_L_Amount",
-        "ROI_Percent",
-        "Stop_Price",
-        "Target_Price",
-        "Risk_Amount",
-        "R_Multiple",
-        "Holding_Days"
+    values = [
+        index,
+        str(row.get("Date", "")),
+        str(row.get("Ticker", "")),
+        str(row.get("Buy_Amount", "")),
+        str(row.get("Sell_Amount", "")),
+        str(row.get("P_L_Amount", "")),
+        str(row.get("ROI_Percent", "")),
+        str(row.get("Memo", ""))
     ]
 
-    for col in numeric_columns:
+    raw = "|".join(values)
 
-        if col not in df.columns:
-            df[col] = 0.0
+    digest = hashlib.sha1(
+        raw.encode("utf-8")
+    ).hexdigest()[:12]
 
-        df[col] = df[col].apply(
-            safe_float
-        )
-
-    # -----------------------------------------------------
-    # 텍스트 컬럼
-    # -----------------------------------------------------
-
-    text_columns = [
-        "Ticker",
-        "Strategy",
-        "Entry_Reason",
-        "Emotion",
-        "Discipline",
-        "Mistake_Tags",
-        "Memo"
-    ]
-
-    for col in text_columns:
-
-        if col not in df.columns:
-            df[col] = ""
-
-        df[col] = df[col].fillna("").astype(str)
-
-    # -----------------------------------------------------
-    # Trade ID
-    # -----------------------------------------------------
-
-    if "Trade_ID" not in df.columns:
-
-        df["Trade_ID"] = [
-            generate_trade_id()
-            for _ in range(len(df))
-        ]
-
-    else:
-
-        df["Trade_ID"] = df["Trade_ID"].fillna("")
-
-        for i in range(len(df)):
-
-            if not str(df.loc[i, "Trade_ID"]).strip():
-
-                df.loc[i, "Trade_ID"] = generate_trade_id()
-
-    # -----------------------------------------------------
-    # 기존 ROI 데이터로 Buy Amount 보정
-    # -----------------------------------------------------
-
-    mask = (
-        (df["Buy_Amount"] == 0)
-        &
-        (df["ROI_Percent"] != 0)
-        &
-        (df["P_L_Amount"] != 0)
-    )
-
-    df.loc[mask, "Buy_Amount"] = (
-        df.loc[mask, "P_L_Amount"]
-        /
-        (df.loc[mask, "ROI_Percent"] / 100)
-    ).abs()
-
-    # -----------------------------------------------------
-    # Sell Amount
-    # -----------------------------------------------------
-
-    mask_sell = (
-        (df["Sell_Amount"] == 0)
-        &
-        (df["Buy_Amount"] != 0)
-    )
-
-    df.loc[mask_sell, "Sell_Amount"] = (
-        df.loc[mask_sell, "Buy_Amount"]
-        +
-        df.loc[mask_sell, "P_L_Amount"]
-    )
-
-    # -----------------------------------------------------
-    # Date 처리
-    # -----------------------------------------------------
-
-    df["Entry_Date"] = pd.to_datetime(
-        df["Entry_Date"],
-        errors="coerce"
-    )
-
-    df["Exit_Date"] = pd.to_datetime(
-        df["Exit_Date"],
-        errors="coerce"
-    )
-
-    # Entry date가 없으면 오늘
-    df["Entry_Date"] = df["Entry_Date"].fillna(
-        pd.Timestamp.today()
-    )
-
-    # Exit date가 없으면 Entry date
-    df["Exit_Date"] = df["Exit_Date"].fillna(
-        df["Entry_Date"]
-    )
-
-    # -----------------------------------------------------
-    # Holding Days
-    # -----------------------------------------------------
-
-    calculated_holding = (
-        df["Exit_Date"] - df["Entry_Date"]
-    ).dt.days
-
-    df["Holding_Days"] = calculated_holding.fillna(
-        df["Holding_Days"]
-    )
-
-    df["Holding_Days"] = (
-        df["Holding_Days"]
-        .clip(lower=0)
-    )
-
-    # -----------------------------------------------------
-    # R Multiple
-    # -----------------------------------------------------
-
-    valid_risk = df["Risk_Amount"] > 0
-
-    df.loc[valid_risk, "R_Multiple"] = (
-        df.loc[valid_risk, "P_L_Amount"]
-        /
-        df.loc[valid_risk, "Risk_Amount"]
-    )
-
-    # -----------------------------------------------------
-    # 기존 컬럼 제거
-    # -----------------------------------------------------
-
-    if "Date" in df.columns:
-        df = df.drop(
-            columns=["Date"]
-        )
-
-    # -----------------------------------------------------
-    # 컬럼 순서
-    # -----------------------------------------------------
-
-    for col in REQUIRED_COLUMNS:
-
-        if col not in df.columns:
-            df[col] = ""
-
-    df = df[REQUIRED_COLUMNS]
-
-    return df
+    return f"LEGACY_{digest}"
 
 
-# =========================================================
-# 6. LOAD DATA
-# =========================================================
+# ============================================================
+# 5. 설정값 불러오기
+# ============================================================
 
-@st.cache_data(ttl=0)
-def load_data():
+def load_status():
+    """
+    Google Sheets 두 번째 탭(worksheet=1)에서
+    계좌 설정값과 기록을 불러온다.
+    """
 
     try:
 
-        raw_df = conn.read(
-            worksheet=0,
+        df_config = conn.read(
+            worksheet=1,
             ttl=0
         )
 
-        if raw_df.empty:
-            return empty_trade_df()
+        if df_config.empty:
+            return 20000000, 5000000, []
 
-        return migrate_dataframe(
-            raw_df
+        row = df_config.iloc[0]
+
+        equity = int(
+            row.get(
+                "Total_Equity",
+                20000000
+            )
         )
 
-    except Exception as e:
-
-        st.warning(
-            f"데이터를 불러오는 중 문제가 발생했습니다: {e}"
+        max_pos = int(
+            row.get(
+                "Max_Position",
+                5000000
+            )
         )
 
-        return empty_trade_df()
+        history_str = str(
+            row.get(
+                "History",
+                ""
+            )
+        )
+
+        if (
+            history_str
+            and history_str != "nan"
+        ):
+            history = history_str.split(",")
+
+        else:
+            history = []
+
+        return equity, max_pos, history
+
+    except Exception:
+        return 20000000, 5000000, []
 
 
-# =========================================================
-# 7. SAVE DATA
-# =========================================================
+# ============================================================
+# 6. 설정값 저장
+# ============================================================
 
-def save_trade(new_trade):
+def save_status(
+    equity,
+    max_pos,
+    history
+):
 
     try:
 
-        live_df = conn.read(
-            worksheet=0,
+        history_str = ",".join(history)
+
+        df_config = conn.read(
+            worksheet=1,
             ttl=0
         )
 
-        if live_df.empty:
+        if not df_config.empty:
 
-            updated_df = new_trade.copy()
+            new_df = df_config.copy()
+
+            new_df.at[
+                0,
+                "Total_Equity"
+            ] = equity
+
+            new_df.at[
+                0,
+                "Max_Position"
+            ] = max_pos
+
+            new_df.at[
+                0,
+                "History"
+            ] = history_str
 
         else:
 
-            live_df = migrate_dataframe(
-                live_df
+            new_df = pd.DataFrame(
+                [{
+                    "Total_Equity": equity,
+                    "Max_Position": max_pos,
+                    "History": history_str
+                }]
             )
-
-            updated_df = pd.concat(
-                [
-                    live_df,
-                    new_trade
-                ],
-                ignore_index=True
-            )
-
-        # Google Sheet용 날짜 문자열
-        updated_df["Entry_Date"] = (
-            pd.to_datetime(
-                updated_df["Entry_Date"]
-            )
-            .dt.strftime("%Y-%m-%d")
-        )
-
-        updated_df["Exit_Date"] = (
-            pd.to_datetime(
-                updated_df["Exit_Date"]
-            )
-            .dt.strftime("%Y-%m-%d")
-        )
 
         conn.update(
-            worksheet=0,
-            data=updated_df
+            worksheet=1,
+            data=new_df
         )
-
-        return True, ""
 
     except Exception as e:
 
-        return False, str(e)
+        st.error(
+            f"저장 실패: {e}"
+        )
 
 
-# =========================================================
-# 8. KRX LIST
-# =========================================================
+# ============================================================
+# 7. 설정 불러오기
+# ============================================================
+
+@st.cache_data(ttl=0)
+def load_settings():
+
+    try:
+
+        df = conn.read(
+            worksheet=1,
+            ttl=0
+        )
+
+        if not df.empty:
+            return df.iloc[0].to_dict()
+
+    except Exception:
+        pass
+
+    return {}
+
+
+saved_config = load_settings()
+
+
+# ============================================================
+# 8. 한국 종목 리스트
+# ============================================================
 
 @st.cache_data(ttl=3600)
 def get_krx_list():
@@ -483,110 +251,320 @@ def get_krx_list():
         ]
 
     except Exception:
-
-        return pd.DataFrame(
-            columns=[
-                "Code",
-                "Name",
-                "Market"
-            ]
-        )
+        return pd.DataFrame()
 
 
-# =========================================================
-# 9. COLOR FUNCTION
-# =========================================================
+# ============================================================
+# 9. 거래 데이터 불러오기
+# ============================================================
 
-def color_profit_loss(val):
+def load_data():
 
     try:
 
-        if pd.isna(val):
-            return ""
+        df = conn.read(
+            worksheet=0,
+            ttl=0
+        )
 
-        val = float(val)
+        # ---------------------------------------------
+        # 데이터가 없는 경우
+        # ---------------------------------------------
 
-        if val > 0:
-            return (
-                "color: #FF4444; "
-                "font-weight: bold;"
+        if df.empty:
+
+            return pd.DataFrame(
+                columns=REQUIRED_COLUMNS
             )
 
-        if val < 0:
-            return (
-                "color: #0066CC; "
-                "font-weight: bold;"
+        df = df.dropna(
+            subset=["Date"]
+        ).copy()
+
+        # ---------------------------------------------
+        # Trade_ID가 없는 기존 데이터 처리
+        # ---------------------------------------------
+
+        if "Trade_ID" not in df.columns:
+
+            df["Trade_ID"] = [
+                create_legacy_trade_id(
+                    row,
+                    index
+                )
+
+                for index, row
+                in df.iterrows()
+            ]
+
+        else:
+
+            for index in df.index:
+
+                current_id = df.at[
+                    index,
+                    "Trade_ID"
+                ]
+
+                if (
+                    pd.isna(current_id)
+                    or str(current_id).strip() == ""
+                ):
+
+                    df.at[
+                        index,
+                        "Trade_ID"
+                    ] = create_legacy_trade_id(
+                        df.loc[index],
+                        index
+                    )
+
+        # ---------------------------------------------
+        # 숫자 컬럼
+        # ---------------------------------------------
+
+        num_cols = [
+            "P_L_Amount",
+            "ROI_Percent",
+            "Buy_Amount",
+            "Sell_Amount"
+        ]
+
+        for col in num_cols:
+
+            if col not in df.columns:
+                df[col] = 0.0
+
+            df[col] = (
+                df[col]
+                .astype(str)
+                .str.replace(
+                    ",",
+                    "",
+                    regex=False
+                )
+                .str.replace(
+                    "%",
+                    "",
+                    regex=False
+                )
             )
 
-    except Exception:
-        pass
+            df[col] = pd.to_numeric(
+                df[col],
+                errors="coerce"
+            ).fillna(0)
 
-    return ""
+        # ---------------------------------------------
+        # 날짜
+        # ---------------------------------------------
+
+        df["Date"] = pd.to_datetime(
+            df["Date"],
+            errors="coerce"
+        )
+
+        # ---------------------------------------------
+        # 문자열 컬럼
+        # ---------------------------------------------
+
+        string_cols = [
+            "Ticker",
+            "Mistake_Tags",
+            "Emotion",
+            "Discipline",
+            "Memo"
+        ]
+
+        for col in string_cols:
+
+            if col not in df.columns:
+                df[col] = ""
+
+            df[col] = (
+                df[col]
+                .fillna("")
+                .astype(str)
+            )
+
+        # ---------------------------------------------
+        # 매수금액이 없는 과거 데이터 보정
+        # ---------------------------------------------
+
+        mask = (
+            (df["Buy_Amount"] == 0)
+            &
+            (df["ROI_Percent"] != 0)
+        )
+
+        df.loc[
+            mask,
+            "Buy_Amount"
+        ] = (
+            df.loc[
+                mask,
+                "P_L_Amount"
+            ]
+            /
+            (
+                df.loc[
+                    mask,
+                    "ROI_Percent"
+                ]
+                / 100
+            )
+        ).abs()
+
+        df.loc[
+            mask,
+            "Sell_Amount"
+        ] = (
+            df.loc[
+                mask,
+                "Buy_Amount"
+            ]
+            +
+            df.loc[
+                mask,
+                "P_L_Amount"
+            ]
+        )
+
+        # ---------------------------------------------
+        # 필요한 컬럼 보장
+        # ---------------------------------------------
+
+        for col in REQUIRED_COLUMNS:
+
+            if col not in df.columns:
+                df[col] = ""
+
+        df = df[
+            REQUIRED_COLUMNS
+        ]
+
+        return df
+
+    except Exception as e:
+
+        st.error(
+            f"데이터 불러오기 실패: {e}"
+        )
+
+        return pd.DataFrame(
+            columns=REQUIRED_COLUMNS
+        )
 
 
-# =========================================================
-# 10. LOAD INITIAL DATA
-# =========================================================
+# ============================================================
+# 10. 최초 데이터 로딩
+# ============================================================
 
 df = load_data()
 
 krx_list = get_krx_list()
 
 
-# =========================================================
-# 11. SESSION STATE
-# =========================================================
+# ============================================================
+# 11. 기존 Google Sheets 데이터에 Trade_ID가 없으면
+#     실제 Sheet에도 한 번 저장
+# ============================================================
 
-defaults = {
+def migrate_trade_ids():
 
-    "form_reset_trigger": 0,
+    try:
 
-    "ai_ticker": "",
-    "ai_buy_amt": 0,
-    "ai_roi": 0.0,
-    "ai_memo": "",
+        live_df = conn.read(
+            worksheet=0,
+            ttl=0
+        )
 
-    "entry_price": 0.0,
-    "exit_price": 0.0,
-    "stop_price": 0.0,
-    "target_price": 0.0
+        if live_df.empty:
+            return
 
-}
+        changed = False
 
-for key, value in defaults.items():
+        if "Trade_ID" not in live_df.columns:
 
-    if key not in st.session_state:
-        st.session_state[key] = value
+            live_df["Trade_ID"] = [
+                create_legacy_trade_id(
+                    row,
+                    index
+                )
+
+                for index, row
+                in live_df.iterrows()
+            ]
+
+            changed = True
+
+        else:
+
+            for index in live_df.index:
+
+                current_id = live_df.at[
+                    index,
+                    "Trade_ID"
+                ]
+
+                if (
+                    pd.isna(current_id)
+                    or str(current_id).strip() == ""
+                ):
+
+                    live_df.at[
+                        index,
+                        "Trade_ID"
+                    ] = create_legacy_trade_id(
+                        live_df.loc[index],
+                        index
+                    )
+
+                    changed = True
+
+        if changed:
+
+            conn.update(
+                worksheet=0,
+                data=live_df
+            )
+
+    except Exception:
+        pass
 
 
-# =========================================================
-# 12. AI RECEIPT ANALYSIS
-# =========================================================
+# 앱 실행 시 기존 데이터 ID 보완
+migrate_trade_ids()
+
+
+# ============================================================
+# 12. 사이드바
+#     AI 영수증 자동 입력
+# ============================================================
 
 st.sidebar.header(
     "📸 AI 영수증 자동 입력"
 )
 
+
 with st.sidebar.expander(
-    "🤖 증권사 캡처 분석",
+    "🤖 캡쳐 화면 올리기",
     expanded=False
 ):
 
     st.markdown(
-        """
-        증권사 수익률 화면을 올리면
-        AI가 종목명, 매수금액, 수익률을 추출합니다.
-        """
+        "수익/손실 화면을 올리면 "
+        "알아서 타이핑해드립니다."
     )
 
     api_key = st.text_input(
-        "Gemini API Key",
+        "Gemini API Key (최초 1회 입력)",
         type="password",
         key="sidebar_api"
     )
 
     uploaded_file = st.file_uploader(
-        "증권사 캡처 이미지",
+        "증권사 캡쳐 이미지",
         type=[
             "png",
             "jpg",
@@ -615,7 +593,7 @@ with st.sidebar.expander(
         else:
 
             with st.spinner(
-                "AI가 캡처를 분석하고 있습니다..."
+                "김 프로가 캡쳐를 분석 중입니다..."
             ):
 
                 try:
@@ -628,10 +606,8 @@ with st.sidebar.expander(
                         api_key=clean_api_key
                     )
 
-                    model = (
-                        genai.GenerativeModel(
-                            "gemini-2.5-flash"
-                        )
+                    model = genai.GenerativeModel(
+                        "gemini-2.5-flash"
                     )
 
                     img = Image.open(
@@ -639,34 +615,41 @@ with st.sidebar.expander(
                     )
 
                     if img.mode != "RGB":
-                        img = img.convert("RGB")
+
+                        img = img.convert(
+                            "RGB"
+                        )
 
                     img.thumbnail(
                         (800, 800)
                     )
 
                     prompt = """
-                    당신은 한국 주식 증권사 화면을
-                    분석하는 AI입니다.
+당신은 한국 주식 증권사 앱의 캡쳐 화면을 분석하는
+최고 수준의 AI 트레이딩 보조입니다.
 
-                    이미지에서 다음 정보를 추출하세요.
+이미지에서 다음 데이터를 반드시 추출하세요.
 
-                    1. 종목명
-                    2. 매수금액
-                    3. 수익률
+1. 종목명
+2. 매수금액
+3. 수익률(%)
 
-                    수익률이 없고 손익금액과 매수금액만 있다면
-                    직접 계산하세요.
+수익률이 화면에 직접 없고 손익금액과 매수금액만 있다면
+다음 공식으로 계산하세요.
 
-                    반드시 아래 JSON 형식만 반환하세요.
+수익률 = 손익금액 / 매수금액 * 100
 
-                    {
-                        "ticker": "삼성전자",
-                        "buy_amount": 1000000,
-                        "roi": 3.25,
-                        "memo": "AI 스캔 완료"
-                    }
-                    """
+소수점 둘째 자리까지 출력하세요.
+
+결과는 반드시 아래 JSON 형식으로만 출력하세요.
+
+{
+    "ticker": "두산퓨얼셀",
+    "buy_amount": 2991450,
+    "roi": 0.04,
+    "memo": "AI 스캔 완료"
+}
+"""
 
                     response = model.generate_content(
                         [
@@ -675,1941 +658,2531 @@ with st.sidebar.expander(
                         ]
                     )
 
-                    result_text = (
-                        response.text.strip()
-                    )
+                    if not response.parts:
 
-                    match = re.search(
-                        r"\{.*\}",
-                        result_text,
-                        re.DOTALL
-                    )
-
-                    if match:
-
-                        clean_json = (
-                            match.group(0)
+                        st.error(
+                            "🚨 AI가 응답을 반환하지 않았습니다."
                         )
 
                     else:
 
-                        clean_json = result_text
-
-                    data = json.loads(
-                        clean_json
-                    )
-
-                    st.session_state.ai_ticker = (
-                        data.get(
-                            "ticker",
-                            ""
+                        result_text = (
+                            response.text.strip()
                         )
-                    )
 
-                    st.session_state.ai_buy_amt = (
-                        safe_int(
+                        match = re.search(
+                            r"\{.*\}",
+                            result_text,
+                            re.DOTALL
+                        )
+
+                        if match:
+
+                            clean_json = (
+                                match.group(0)
+                            )
+
+                        else:
+
+                            clean_json = result_text
+
+                        data = json.loads(
+                            clean_json
+                        )
+
+                        st.session_state.ai_ticker = (
                             data.get(
-                                "buy_amount",
-                                0
+                                "ticker",
+                                ""
                             )
                         )
-                    )
 
-                    st.session_state.ai_roi = (
-                        safe_float(
-                            data.get(
-                                "roi",
-                                0
+                        buy_amt_raw = (
+                            str(
+                                data.get(
+                                    "buy_amount",
+                                    0
+                                )
+                            )
+                            .replace(",", "")
+                        )
+
+                        st.session_state.ai_buy_amt = int(
+                            float(
+                                buy_amt_raw
                             )
                         )
-                    )
 
-                    st.session_state.ai_memo = (
-                        data.get(
-                            "memo",
-                            "📸 AI 분석 완료"
+                        roi_raw = (
+                            str(
+                                data.get(
+                                    "roi",
+                                    0.0
+                                )
+                            )
+                            .replace(",", "")
+                            .replace("%", "")
                         )
-                    )
 
-                    st.session_state.form_reset_trigger += 1
+                        st.session_state.ai_roi = float(
+                            roi_raw
+                        )
 
-                    st.success(
-                        "✅ AI 분석 완료!"
-                    )
+                        st.session_state.ai_memo = (
+                            data.get(
+                                "memo",
+                                "📸 AI 분석 자동 입력"
+                            )
+                        )
+
+                        if (
+                            "form_reset_trigger"
+                            not in st.session_state
+                        ):
+
+                            st.session_state.form_reset_trigger = 0
+
+                        st.session_state.form_reset_trigger += 1
+
+                        st.success(
+                            "✅ 분석 성공! "
+                            "아래 폼에 입력되었습니다."
+                        )
 
                 except Exception as e:
 
-                    st.error(
-                        f"AI 분석 실패: {e}"
-                    )
+                    error_msg = str(e)
+
+                    if (
+                        "429" in error_msg
+                        or
+                        "quota"
+                        in error_msg.lower()
+                    ):
+
+                        st.error(
+                            "🚨 무료 API 호출 제한 초과!"
+                        )
+
+                        st.warning(
+                            "잠시 후 다시 시도해주세요."
+                        )
+
+                    else:
+
+                        st.error(
+                            "🚨 해독 실패! "
+                            "캡쳐 이미지를 다시 확인해주세요."
+                        )
+
+                        with st.expander(
+                            "🛠️ 디버깅"
+                        ):
+
+                            st.write(
+                                f"시스템 에러: {e}"
+                            )
+
+                            if "result_text" in locals():
+
+                                st.write(
+                                    "AI 원본 데이터:",
+                                    result_text
+                                )
 
 
-# =========================================================
-# 13. QUICK DEFAULT VALUES
-# =========================================================
+# ============================================================
+# 13. AI 결과 상태
+# ============================================================
 
-def_ticker = st.session_state.ai_ticker
-def_buy_amt = st.session_state.ai_buy_amt
-def_roi = st.session_state.ai_roi
-def_memo = st.session_state.ai_memo
+if (
+    "form_reset_trigger"
+    not in st.session_state
+):
+
+    st.session_state.form_reset_trigger = 0
+
+
+def_ticker = st.session_state.get(
+    "ai_ticker",
+    ""
+)
+
+def_buy_amt = int(
+    st.session_state.get(
+        "ai_buy_amt",
+        0
+    )
+)
+
+def_roi = float(
+    st.session_state.get(
+        "ai_roi",
+        0.0
+    )
+)
+
+def_memo = st.session_state.get(
+    "ai_memo",
+    ""
+)
 
 fc = st.session_state.form_reset_trigger
 
 
-# =========================================================
-# 14. TRADE INPUT
-# =========================================================
+# ============================================================
+# 14. 사이드바 거래 입력
+# ============================================================
 
 st.sidebar.markdown("---")
 
 st.sidebar.header(
-    "📝 새로운 매매 기록"
+    "📝 매매 기록 입력"
 )
 
+
 with st.sidebar.form(
-    "trade_input",
-    clear_on_submit=False
+    "quick_input",
+    clear_on_submit=True
 ):
 
-    # -----------------------------------------------------
-    # SECTION 1
-    # 기본 거래 정보
-    # -----------------------------------------------------
-
-    st.markdown(
-        "### ① 기본 거래 정보"
-    )
-
-    entry_date = st.date_input(
-        "진입일",
-        value=datetime.today(),
-        key=f"entry_date_{fc}"
-    )
-
-    exit_date = st.date_input(
-        "청산일",
-        value=datetime.today(),
-        key=f"exit_date_{fc}"
+    date = st.date_input(
+        "일자",
+        datetime.today()
     )
 
     ticker = st.text_input(
-        "종목명",
+        "종목명 (예: 삼성전자)",
         value=def_ticker,
-        placeholder="예: 삼성전자",
-        key=f"ticker_{fc}"
+        key=f"t_{fc}"
     ).strip()
 
-    # -----------------------------------------------------
-    # SECTION 2
-    # 가격 정보
-    # -----------------------------------------------------
-
     st.markdown("---")
-
-    st.markdown(
-        "### ② 가격 정보"
-    )
-
-    entry_price = st.number_input(
-        "매수가",
-        min_value=0.0,
-        value=float(
-            st.session_state.get(
-                "entry_price",
-                0.0
-            )
-        ),
-        step=100.0,
-        key=f"entry_price_{fc}"
-    )
-
-    exit_price = st.number_input(
-        "매도가",
-        min_value=0.0,
-        value=float(
-            st.session_state.get(
-                "exit_price",
-                0.0
-            )
-        ),
-        step=100.0,
-        key=f"exit_price_{fc}"
-    )
-
-    # -----------------------------------------------------
-    # SECTION 3
-    # 금액
-    # -----------------------------------------------------
-
-    st.markdown("---")
-
-    st.markdown(
-        "### ③ 금액"
-    )
 
     buy_amt = st.number_input(
-        "총 매수 금액",
-        min_value=0,
-        value=int(def_buy_amt),
+        "총 매수 금액 (원)",
+        value=def_buy_amt,
         step=100000,
-        key=f"buy_amt_{fc}"
+        key=f"b_{fc}"
     )
 
-    # 매도가 입력이 있으면 자동 계산
-    calculated_sell = 0.0
+    roi = st.number_input(
+        "수익률 (%)",
+        value=def_roi,
+        format="%.2f",
+        key=f"r_{fc}"
+    )
 
-    if exit_price > 0 and entry_price > 0:
+    sell_amt = 0.0
+    pn_l = 0.0
 
-        calculated_sell = (
+    if buy_amt != 0:
+
+        pn_l = (
             buy_amt
             *
-            (
-                exit_price
-                /
-                entry_price
-            )
+            (roi / 100)
         )
 
-    default_sell = (
-        calculated_sell
-        if calculated_sell > 0
-        else 0
-    )
-
-    sell_amt = st.number_input(
-        "총 매도 금액",
-        min_value=0,
-        value=int(default_sell),
-        step=100000,
-        key=f"sell_amt_{fc}"
-    )
-
-    # 기존 AI ROI
-    roi_from_ai = def_roi
-
-    # -----------------------------------------------------
-    # ROI 자동 계산
-    # -----------------------------------------------------
-
-    if buy_amt > 0 and sell_amt > 0:
-
-        calculated_pl = (
-            sell_amt
-            -
+        sell_amt = (
             buy_amt
+            +
+            pn_l
         )
 
-        calculated_roi = (
-            calculated_pl
-            /
-            buy_amt
-            *
-            100
+        st.info(
+            f"""
+🧮 **자동 계산 결과**
+
+- 수익금: {pn_l:,.0f}원
+- 매도금액: {sell_amt:,.0f}원
+"""
         )
-
-    else:
-
-        calculated_pl = (
-            buy_amt
-            *
-            roi_from_ai
-            /
-            100
-        )
-
-        calculated_roi = roi_from_ai
-
-    st.info(
-        f"""
-        💰 손익금액: **{calculated_pl:,.0f}원**
-
-        📈 수익률: **{calculated_roi:+.2f}%**
-        """
-    )
-
-    # -----------------------------------------------------
-    # SECTION 4
-    # Risk / Reward
-    # -----------------------------------------------------
 
     st.markdown("---")
 
-    st.markdown(
-        "### ④ Risk / Reward"
-    )
-
-    stop_price = st.number_input(
-        "손절가",
-        min_value=0.0,
-        value=0.0,
-        step=100.0,
-        help="진입 전에 계획했던 손절 가격"
-    )
-
-    target_price = st.number_input(
-        "목표가",
-        min_value=0.0,
-        value=0.0,
-        step=100.0,
-        help="진입 전에 계획했던 목표 가격"
-    )
-
-    risk_amount = 0.0
-    r_multiple = 0.0
-
-    if (
-        entry_price > 0
-        and stop_price > 0
-        and buy_amt > 0
-    ):
-
-        risk_percent = (
-            (
-                entry_price
-                -
-                stop_price
-            )
-            /
-            entry_price
-        )
-
-        risk_amount = (
-            buy_amt
-            *
-            risk_percent
-        )
-
-        if risk_amount > 0:
-
-            r_multiple = (
-                calculated_pl
-                /
-                risk_amount
-            )
-
-    if stop_price > 0:
-
-        st.caption(
-            f"계획된 위험금액: "
-            f"{risk_amount:,.0f}원"
-        )
-
-        st.caption(
-            f"현재 거래의 R: "
-            f"{r_multiple:+.2f}R"
-        )
-
-    # -----------------------------------------------------
-    # SECTION 5
-    # Strategy
-    # -----------------------------------------------------
-
-    st.markdown("---")
-
-    st.markdown(
-        "### ⑤ 매매 전략"
-
-    )
-
-    strategy = st.selectbox(
-        "매매 전략",
-        [
-            "추세추종",
-            "돌파",
-            "눌림목",
-            "신고가",
-            "이평선",
-            "거래량",
-            "시장 주도주",
-            "스윙",
-            "기타"
-        ]
-    )
-
-    entry_reason = st.text_area(
-        "진입 근거",
-        placeholder=(
-            "왜 이 종목을 샀는지 적어주세요.\n"
-            "예: 신고가 돌파 + 거래량 증가 + 시장 강세"
-        )
-    )
-
-    # -----------------------------------------------------
-    # SECTION 6
-    # Psychology
-    # -----------------------------------------------------
-
-    st.markdown("---")
-
-    st.markdown(
-        "### ⑥ 매매 심리"
-
-    )
-
-    emotion = st.selectbox(
-        "진입 당시 감정",
-        [
-            "차분함",
-            "확신",
-            "기대",
-            "조급함",
-            "두려움",
-            "FOMO",
-            "복수매매",
-            "욕심",
-            "기타"
-        ]
-    )
-
-    discipline = st.selectbox(
-        "원칙 준수",
-        [
-            "완벽하게 지킴",
-            "대부분 지킴",
-            "일부 위반",
-            "많이 위반",
-            "완전히 위반"
-        ]
-    )
-
-    mistake_tags = st.multiselect(
-        "실수 태그",
-        [
-            "추격매수",
-            "손절 지연",
-            "과대 포지션",
-            "FOMO",
-            "너무 빠른 매도",
-            "너무 늦은 매도",
-            "물타기",
-            "원칙 위반",
-            "계획 없는 진입",
-            "없음"
-        ]
-    )
-
-    # -----------------------------------------------------
-    # SECTION 7
-    # Memo
-    # -----------------------------------------------------
-
-    st.markdown("---")
-
-    st.markdown(
-        "### ⑦ 복기 메모"
-    )
-
-    memo = st.text_area(
+    memo = st.text_input(
         "메모",
         value=def_memo,
-        placeholder=(
-            "이번 매매에서 배운 점을 기록하세요."
-        )
+        key=f"m_{fc}"
     )
 
-    # -----------------------------------------------------
-    # Holding Days
-    # -----------------------------------------------------
+    if st.form_submit_button(
+        "기록 저장"
+    ):
 
-    holding_days = (
-        exit_date
-        -
-        entry_date
-    ).days
+        if ticker:
 
-    if holding_days < 0:
-        holding_days = 0
+            with st.spinner(
+                "안전하게 저장 중입니다... 🛡️"
+            ):
 
-    st.caption(
-        f"📅 보유기간: {holding_days}일"
-    )
+                try:
 
-    # -----------------------------------------------------
-    # SAVE
-    # -----------------------------------------------------
+                    # ---------------------------------
+                    # 새로운 거래 ID 생성
+                    # ---------------------------------
 
-    submitted = st.form_submit_button(
-        "💾 매매 기록 저장",
-        use_container_width=True
-    )
+                    new_trade_id = (
+                        "TRD_"
+                        +
+                        datetime.now().strftime(
+                            "%Y%m%d%H%M%S"
+                        )
+                        +
+                        "_"
+                        +
+                        str(
+                            random.randint(
+                                1000,
+                                9999
+                            )
+                        )
+                    )
 
-    if submitted:
+                    new_data = pd.DataFrame(
+                        [{
+                            "Trade_ID": new_trade_id,
+                            "Date": date.strftime(
+                                "%Y-%m-%d"
+                            ),
+                            "Ticker": ticker,
+                            "Buy_Amount": buy_amt,
+                            "Sell_Amount": sell_amt,
+                            "P_L_Amount": pn_l,
+                            "ROI_Percent": roi,
+                            "Mistake_Tags": "",
+                            "Emotion": "",
+                            "Discipline": "",
+                            "Memo": memo
+                        }]
+                    )
 
-        if not ticker:
+                    live_df = conn.read(
+                        worksheet=0,
+                        ttl=0
+                    )
+
+                    if live_df.empty:
+
+                        updated_df = new_data
+
+                    else:
+
+                        # 기존 데이터에 Trade_ID 보완
+                        if (
+                            "Trade_ID"
+                            not in live_df.columns
+                        ):
+
+                            live_df["Trade_ID"] = [
+                                create_legacy_trade_id(
+                                    row,
+                                    index
+                                )
+
+                                for index, row
+                                in live_df.iterrows()
+                            ]
+
+                        else:
+
+                            for index in live_df.index:
+
+                                if (
+                                    pd.isna(
+                                        live_df.at[
+                                            index,
+                                            "Trade_ID"
+                                        ]
+                                    )
+                                    or
+                                    str(
+                                        live_df.at[
+                                            index,
+                                            "Trade_ID"
+                                        ]
+                                    ).strip() == ""
+                                ):
+
+                                    live_df.at[
+                                        index,
+                                        "Trade_ID"
+                                    ] = create_legacy_trade_id(
+                                        live_df.loc[index],
+                                        index
+                                    )
+
+                        live_df["Date"] = pd.to_datetime(
+                            live_df["Date"],
+                            errors="coerce"
+                        ).dt.strftime(
+                            "%Y-%m-%d"
+                        )
+
+                        updated_df = pd.concat(
+                            [
+                                live_df,
+                                new_data
+                            ],
+                            ignore_index=True
+                        )
+
+                    # 컬럼 순서
+                    for col in REQUIRED_COLUMNS:
+
+                        if col not in updated_df.columns:
+                            updated_df[col] = ""
+
+                    updated_df = updated_df[
+                        REQUIRED_COLUMNS
+                    ]
+
+                    conn.update(
+                        worksheet=0,
+                        data=updated_df
+                    )
+
+                    # AI 상태 초기화
+                    st.session_state.ai_ticker = ""
+                    st.session_state.ai_buy_amt = 0
+                    st.session_state.ai_roi = 0.0
+                    st.session_state.ai_memo = ""
+
+                    st.success(
+                        f"✅ {ticker} 저장 완료!"
+                    )
+
+                    st.rerun()
+
+                except Exception as e:
+
+                    st.error(
+                        "🚨 저장 실패. "
+                        "원본 데이터 보호를 위해 저장을 중단했습니다."
+                    )
+
+                    st.write(
+                        f"에러 내용: {e}"
+                    )
+
+        else:
 
             st.error(
                 "종목명을 입력해주세요."
             )
 
-        else:
-
-            trade_id = generate_trade_id()
-
-            new_trade = pd.DataFrame(
-                [
-                    {
-                        "Trade_ID": trade_id,
-
-                        "Entry_Date": entry_date,
-
-                        "Exit_Date": exit_date,
-
-                        "Ticker": ticker,
-
-                        "Entry_Price": entry_price,
-
-                        "Exit_Price": exit_price,
-
-                        "Buy_Amount": buy_amt,
-
-                        "Sell_Amount": sell_amt,
-
-                        "P_L_Amount": calculated_pl,
-
-                        "ROI_Percent": calculated_roi,
-
-                        "Stop_Price": stop_price,
-
-                        "Target_Price": target_price,
-
-                        "Risk_Amount": risk_amount,
-
-                        "R_Multiple": r_multiple,
-
-                        "Holding_Days": holding_days,
-
-                        "Strategy": strategy,
-
-                        "Entry_Reason": entry_reason,
-
-                        "Emotion": emotion,
-
-                        "Discipline": discipline,
-
-                        "Mistake_Tags": ", ".join(
-                            mistake_tags
-                        ),
-
-                        "Memo": memo
-                    }
-                ]
-            )
-
-            success, error = save_trade(
-                new_trade
-            )
-
-            if success:
-
-                st.success(
-                    f"✅ {ticker} 거래가 저장되었습니다."
-                )
-
-                # AI 데이터 초기화
-                st.session_state.ai_ticker = ""
-                st.session_state.ai_buy_amt = 0
-                st.session_state.ai_roi = 0.0
-                st.session_state.ai_memo = ""
-
-                # 캐시 초기화
-                st.cache_data.clear()
-
-                st.rerun()
-
-            else:
-
-                st.error(
-                    "저장에 실패했습니다."
-                )
-
-                st.code(
-                    error
-                )
-
-
-# =========================================================
-# 15. SIDEBAR STATUS
-# =========================================================
 
 if krx_list.empty:
 
     st.sidebar.caption(
-        "⚠️ KRX 종목 리스트 연결 실패"
+        "⚠️ 종목 리스트 로딩 실패"
     )
 
 else:
 
     st.sidebar.caption(
-        f"✅ KRX {len(krx_list):,}개 종목 연결"
+        f"✅ {len(krx_list):,}개 종목 연결됨"
     )
 
-st.sidebar.markdown("---")
 
-st.sidebar.caption(
-    "Trading Master 2.0"
-)
-
-st.sidebar.caption(
-    "STEP 1 + STEP 2"
-)
-
-
-# =========================================================
-# 16. MAIN DASHBOARD
-# =========================================================
+# ============================================================
+# 15. 메인 화면
+# ============================================================
 
 st.title(
-    "💎 Trading Master 2.0"
-)
-
-st.caption(
-    "내 매매를 기록하고, 패턴을 찾고, "
-    "나만의 트레이딩 시스템을 만드는 대시보드"
+    "💎 Trading Master Dashboard"
 )
 
 
-if df.empty:
+# ============================================================
+# 데이터가 있는 경우
+# ============================================================
 
-    st.info(
-        "👈 왼쪽에서 첫 번째 매매 기록을 입력해보세요."
+if not df.empty:
+
+    # ========================================================
+    # 수익 / 손실 색상
+    # ========================================================
+
+    def color_profit_loss(val):
+
+        try:
+
+            if pd.isna(val):
+                return ""
+
+            if float(val) > 0:
+
+                return (
+                    "color: #FF4444; "
+                    "font-weight: bold;"
+                )
+
+            elif float(val) < 0:
+
+                return (
+                    "color: #0066CC; "
+                    "font-weight: bold;"
+                )
+
+        except Exception:
+            pass
+
+        return ""
+
+
+    # ========================================================
+    # 탭
+    # ========================================================
+
+    (
+        tab1,
+        tab2,
+        tab3,
+        tab4,
+        tab5,
+        tab6,
+        tab7,
+        tab8
+    ) = st.tabs(
+        [
+            "📊 차트",
+            "📅 월별",
+            "📆 연도별",
+            "📋 원본",
+            "⚖️ 빅터 스페란데오",
+            "🎯 R-배수 분석",
+            "🔔 손익 분포",
+            "🛠️ 거래 관리"
+        ]
     )
 
-    st.stop()
 
+    # ========================================================
+    # 공통 날짜 정보
+    # ========================================================
 
-# =========================================================
-# 17. DATA PREPARATION
-# =========================================================
-
-df = migrate_dataframe(df)
-
-df["Entry_Date"] = pd.to_datetime(
-    df["Entry_Date"],
-    errors="coerce"
-)
-
-df["Exit_Date"] = pd.to_datetime(
-    df["Exit_Date"],
-    errors="coerce"
-)
-
-df["Year"] = (
-    df["Entry_Date"]
-    .dt.year
-)
-
-df["YearMonth"] = (
-    df["Entry_Date"]
-    .dt.strftime("%Y-%m")
-)
-
-
-# =========================================================
-# 18. GLOBAL METRICS
-# =========================================================
-
-total_trades = len(df)
-
-wins = df[
-    df["P_L_Amount"] > 0
-]
-
-losses = df[
-    df["P_L_Amount"] <= 0
-]
-
-win_rate = (
-    len(wins)
-    /
-    total_trades
-    *
-    100
-    if total_trades > 0
-    else 0
-)
-
-avg_win = (
-    wins["ROI_Percent"].mean()
-    if not wins.empty
-    else 0
-)
-
-avg_loss = (
-    abs(
-        losses["ROI_Percent"].mean()
+    df["Year"] = (
+        df["Date"].dt.year
     )
-    if not losses.empty
-    else 0
-)
 
-risk_reward_ratio = (
-    avg_win
-    /
-    avg_loss
-    if avg_loss > 0
-    else 0
-)
-
-avg_roi = (
-    df["ROI_Percent"].mean()
-)
+    df["YearMonth"] = (
+        df["Date"].dt.strftime(
+            "%Y-%m"
+        )
+    )
 
 
-# =========================================================
-# 19. TABS
-# =========================================================
+    # ========================================================
+    # 전체 통계
+    # ========================================================
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
-    [
-        "📊 차트",
-        "📅 월별",
-        "📆 연도별",
-        "📋 거래 원본",
-        "⚖️ 빅터 스페란데오",
-        "🎯 R-배수",
-        "🔔 손익 분포",
-        "🧠 매매 패턴"
+    total_trades = len(df)
+
+    wins = df[
+        df["ROI_Percent"] > 0
     ]
-)
 
+    losses = df[
+        df["ROI_Percent"] <= 0
+    ]
 
-# =========================================================
-# TAB 1
-# =========================================================
-
-with tab1:
-
-    st.subheader(
-        "🏆 전체 종합 성적표"
-    )
-
-    total_pl = (
-        df["P_L_Amount"].sum()
-    )
-
-    gross_profit = (
-        df[
-            df["P_L_Amount"] > 0
-        ]["P_L_Amount"]
-        .sum()
-    )
-
-    gross_loss = abs(
-        df[
-            df["P_L_Amount"] <= 0
-        ]["P_L_Amount"]
-        .sum()
-    )
-
-    total_pf = (
-        gross_profit
+    win_rate = (
+        len(wins)
         /
-        gross_loss
-        if gross_loss > 0
+        total_trades
+        *
+        100
+        if total_trades > 0
         else 0
     )
 
-    avg_profit_amt = (
-        wins["P_L_Amount"].mean()
+    avg_win = (
+        wins["ROI_Percent"].mean()
         if not wins.empty
         else 0
     )
 
-    avg_loss_amt = (
+    avg_loss = (
         abs(
-            losses["P_L_Amount"].mean()
+            losses["ROI_Percent"].mean()
         )
         if not losses.empty
         else 0
     )
 
-    money_rr_ratio = (
-        avg_profit_amt
+    risk_reward_ratio = (
+        avg_win
         /
-        avg_loss_amt
-        if avg_loss_amt > 0
+        avg_loss
+        if avg_loss > 0
         else 0
     )
 
-    win_prob = (
-        len(wins)
-        /
-        total_trades
-        if total_trades > 0
-        else 0
+    avg_roi = (
+        df["ROI_Percent"].mean()
     )
 
-    loss_prob = (
-        1 - win_prob
-    )
 
-    expectancy = (
-        win_prob * avg_win
-        -
-        loss_prob * avg_loss
-    )
+    # ========================================================
+    # TAB 1 : 차트
+    # ========================================================
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    with tab1:
 
-    c1.metric(
-        "💰 누적 손익",
-        f"{total_pl:,.0f}원"
-    )
-
-    c2.metric(
-        "🎯 승률",
-        f"{win_rate:.1f}%"
-    )
-
-    c3.metric(
-        "🔮 기대값",
-        f"{expectancy:+.2f}%"
-    )
-
-    c4.metric(
-        "💎 Profit Factor",
-        f"{total_pf:.2f}"
-    )
-
-    c5.metric(
-        "⚖️ 금액 손익비",
-        f"{money_rr_ratio:.2f}"
-    )
-
-    st.divider()
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric(
-        "평균 수익",
-        f"{avg_profit_amt:,.0f}원"
-    )
-
-    c2.metric(
-        "평균 손실",
-        f"{avg_loss_amt:,.0f}원"
-    )
-
-    c3.metric(
-        "평균 수익률",
-        f"{avg_win:+.2f}%"
-    )
-
-    c4.metric(
-        "평균 손실률",
-        f"-{avg_loss:.2f}%"
-    )
-
-    st.divider()
-
-    # 누적 손익
-    daily_df = (
-        df
-        .groupby("Entry_Date")["P_L_Amount"]
-        .sum()
-        .reset_index()
-        .sort_values("Entry_Date")
-    )
-
-    daily_df["Cumulative"] = (
-        daily_df["P_L_Amount"]
-        .cumsum()
-    )
-
-    st.subheader(
-        "📈 누적 손익"
-    )
-
-    chart = (
-        alt.Chart(daily_df)
-        .mark_line(
-            strokeWidth=3
+        st.subheader(
+            "🏆 전체 종합 성적표"
         )
-        .encode(
-            x=alt.X(
-                "Entry_Date:T",
-                title="날짜"
-            ),
-            y=alt.Y(
-                "Cumulative:Q",
-                title="누적 손익"
-            ),
-            tooltip=[
-                "Entry_Date:T",
-                "Cumulative:Q"
-            ]
+
+        total_pl = (
+            df["P_L_Amount"].sum()
         )
-        .interactive()
-    )
 
-    st.altair_chart(
-        chart,
-        use_container_width=True
-    )
+        total_cnt = len(df)
 
-
-# =========================================================
-# TAB 2
-# MONTHLY
-# =========================================================
-
-with tab2:
-
-    st.subheader(
-        "📅 월별 상세 성적표"
-    )
-
-    monthly_stats = []
-
-    for ym, group in df.groupby(
-        "YearMonth"
-    ):
-
-        g_wins = group[
-            group["P_L_Amount"] > 0
+        all_wins = df[
+            df["ROI_Percent"] > 0
         ]
 
-        g_losses = group[
-            group["P_L_Amount"] <= 0
+        all_losses = df[
+            df["ROI_Percent"] <= 0
         ]
 
-        gross_profit = (
-            g_wins["P_L_Amount"].sum()
+        gross_p = (
+            all_wins["P_L_Amount"].sum()
         )
 
-        gross_loss = abs(
-            g_losses["P_L_Amount"].sum()
+        gross_l = abs(
+            all_losses[
+                "P_L_Amount"
+            ].sum()
         )
 
-        pf = (
-            gross_profit
+        total_pf = (
+            gross_p / gross_l
+            if gross_l > 0
+            else 0
+        )
+
+        all_avg_profit_amt = (
+            all_wins[
+                "P_L_Amount"
+            ].mean()
+            if not all_wins.empty
+            else 0
+        )
+
+        all_avg_loss_amt = abs(
+            all_losses[
+                "P_L_Amount"
+            ].mean()
+        ) if not all_losses.empty else 0
+
+        money_rr_ratio = (
+            all_avg_profit_amt
             /
-            gross_loss
-            if gross_loss > 0
+            all_avg_loss_amt
+            if all_avg_loss_amt > 0
             else 0
         )
 
-        avg_gain = (
-            g_wins["ROI_Percent"].mean()
-            if not g_wins.empty
+        all_avg_profit_pct = (
+            all_wins[
+                "ROI_Percent"
+            ].mean()
+            if not all_wins.empty
             else 0
         )
 
-        avg_loss_m = (
-            abs(
-                g_losses[
-                    "ROI_Percent"
-                ].mean()
-            )
-            if not g_losses.empty
-            else 0
-        )
+        all_avg_loss_pct = abs(
+            all_losses[
+                "ROI_Percent"
+            ].mean()
+        ) if not all_losses.empty else 0
 
-        wl_ratio = (
-            avg_gain
+        period_rr_ratio = (
+            all_avg_profit_pct
             /
-            avg_loss_m
-            if avg_loss_m > 0
+            all_avg_loss_pct
+            if all_avg_loss_pct > 0
             else 0
         )
 
-        count = len(group)
-
-        win_prob_m = (
-            len(g_wins)
+        win_prob = (
+            len(all_wins)
             /
-            count
-            if count > 0
+            total_cnt
+            if total_cnt > 0
             else 0
         )
 
-        expectancy_m = (
-            win_prob_m * avg_gain
-            -
-            (1 - win_prob_m) * avg_loss_m
+        loss_prob = (
+            1 - win_prob
         )
 
-        monthly_stats.append(
-            {
-                "기간": ym,
-                "총 손익": group[
-                    "P_L_Amount"
-                ].sum(),
-                "거래횟수": count,
-                "승률": win_prob_m * 100,
-                "손익비": wl_ratio,
-                "PF": pf,
-                "기대값": expectancy_m,
-                "평균 R": group[
-                    "R_Multiple"
-                ].mean()
-            }
-        )
-
-    monthly_df = pd.DataFrame(
-        monthly_stats
-    ).sort_values(
-        "기간",
-        ascending=False
-    )
-
-    st.dataframe(
-        monthly_df.style.map(
-            color_profit_loss,
-            subset=[
-                "총 손익",
-                "기대값"
-            ]
-        ).format(
-            {
-                "총 손익": "{:+,.0f}원",
-                "거래횟수": "{:,}회",
-                "승률": "{:.1f}%",
-                "손익비": "{:.2f}",
-                "PF": "{:.2f}",
-                "기대값": "{:+.2f}%",
-                "평균 R": "{:+.2f}R"
-            }
-        ),
-        use_container_width=True
-    )
-
-
-# =========================================================
-# TAB 3
-# YEARLY
-# =========================================================
-
-with tab3:
-
-    st.subheader(
-        "📆 연도별 종합 성적표"
-    )
-
-    yearly_stats = []
-
-    for year, group in df.groupby(
-        "Year"
-    ):
-
-        g_wins = group[
-            group["P_L_Amount"] > 0
-        ]
-
-        g_losses = group[
-            group["P_L_Amount"] <= 0
-        ]
-
-        gross_profit = (
-            g_wins["P_L_Amount"].sum()
-        )
-
-        gross_loss = abs(
-            g_losses["P_L_Amount"].sum()
-        )
-
-        pf = (
-            gross_profit
-            /
-            gross_loss
-            if gross_loss > 0
-            else 0
-        )
-
-        avg_gain = (
-            g_wins["ROI_Percent"].mean()
-            if not g_wins.empty
-            else 0
-        )
-
-        avg_loss_y = (
-            abs(
-                g_losses[
-                    "ROI_Percent"
-                ].mean()
-            )
-            if not g_losses.empty
-            else 0
-        )
-
-        wl_ratio = (
-            avg_gain
-            /
-            avg_loss_y
-            if avg_loss_y > 0
-            else 0
-        )
-
-        count = len(group)
-
-        win_prob_y = (
-            len(g_wins)
-            /
-            count
-            if count > 0
-            else 0
-        )
-
-        expectancy_y = (
-            win_prob_y * avg_gain
-            -
-            (1 - win_prob_y) * avg_loss_y
-        )
-
-        yearly_stats.append(
-            {
-                "연도": int(year),
-                "총 손익": group[
-                    "P_L_Amount"
-                ].sum(),
-                "거래횟수": count,
-                "승률": win_prob_y * 100,
-                "손익비": wl_ratio,
-                "PF": pf,
-                "기대값": expectancy_y,
-                "평균 R": group[
-                    "R_Multiple"
-                ].mean()
-            }
-        )
-
-    yearly_df = pd.DataFrame(
-        yearly_stats
-    ).sort_values(
-        "연도",
-        ascending=False
-    )
-
-    st.dataframe(
-        yearly_df.style.map(
-            color_profit_loss,
-            subset=[
-                "총 손익",
-                "기대값"
-            ]
-        ).format(
-            {
-                "총 손익": "{:+,.0f}원",
-                "거래횟수": "{:,}회",
-                "승률": "{:.1f}%",
-                "손익비": "{:.2f}",
-                "PF": "{:.2f}",
-                "기대값": "{:+.2f}%",
-                "평균 R": "{:+.2f}R"
-            }
-        ),
-        use_container_width=True
-    )
-
-
-# =========================================================
-# TAB 4
-# RAW DATA
-# =========================================================
-
-with tab4:
-
-    st.subheader(
-        "📋 거래 원본 데이터"
-    )
-
-    display_df = df.sort_values(
-        "Entry_Date",
-        ascending=False
-    ).copy()
-
-    display_df = display_df[
-        [
-            "Trade_ID",
-            "Entry_Date",
-            "Exit_Date",
-            "Ticker",
-            "Entry_Price",
-            "Exit_Price",
-            "Buy_Amount",
-            "Sell_Amount",
-            "P_L_Amount",
-            "ROI_Percent",
-            "Stop_Price",
-            "Target_Price",
-            "Risk_Amount",
-            "R_Multiple",
-            "Holding_Days",
-            "Strategy",
-            "Entry_Reason",
-            "Emotion",
-            "Discipline",
-            "Mistake_Tags",
-            "Memo"
-        ]
-    ]
-
-    styled = (
-        display_df.style
-        .map(
-            color_profit_loss,
-            subset=[
-                "P_L_Amount",
-                "ROI_Percent",
-                "R_Multiple"
-            ]
-        )
-        .format(
-            {
-                "Entry_Price": "{:,.0f}",
-                "Exit_Price": "{:,.0f}",
-                "Buy_Amount": "{:,.0f}",
-                "Sell_Amount": "{:,.0f}",
-                "P_L_Amount": "{:+,.0f}",
-                "ROI_Percent": "{:+.2f}%",
-                "Stop_Price": "{:,.0f}",
-                "Target_Price": "{:,.0f}",
-                "Risk_Amount": "{:,.0f}",
-                "R_Multiple": "{:+.2f}R"
-            }
-        )
-    )
-
-    st.dataframe(
-        styled,
-        use_container_width=True,
-        height=600
-    )
-
-
-# =========================================================
-# TAB 5
-# VICTOR SPERANDEO
-# =========================================================
-
-with tab5:
-
-    st.subheader(
-        "⚖️ Reward-to-Risk Analysis"
-    )
-
-    vic_period = st.radio(
-        "분석 기간",
-        [
-            "전체",
-            "최근 1개월",
-            "최근 3개월",
-            "최근 6개월",
-            "최근 1년"
-        ],
-        horizontal=True,
-        key="vic_radio"
-    )
-
-    vic_df = df.copy()
-
-    today = pd.Timestamp.today()
-
-    if vic_period == "최근 1개월":
-
-        vic_df = vic_df[
-            vic_df["Entry_Date"]
-            >=
-            today - timedelta(days=30)
-        ]
-
-    elif vic_period == "최근 3개월":
-
-        vic_df = vic_df[
-            vic_df["Entry_Date"]
-            >=
-            today - timedelta(days=90)
-        ]
-
-    elif vic_period == "최근 6개월":
-
-        vic_df = vic_df[
-            vic_df["Entry_Date"]
-            >=
-            today - timedelta(days=180)
-        ]
-
-    elif vic_period == "최근 1년":
-
-        vic_df = vic_df[
-            vic_df["Entry_Date"]
-            >=
-            today - timedelta(days=365)
-        ]
-
-    if vic_df.empty:
-
-        st.info(
-            "선택한 기간에 데이터가 없습니다."
-        )
-
-    else:
-
-        v_wins = vic_df[
-            vic_df["ROI_Percent"] > 0
-        ]
-
-        v_losses = vic_df[
-            vic_df["ROI_Percent"] <= 0
-        ]
-
-        v_win_rate = (
-            len(v_wins)
-            /
-            len(vic_df)
+        expectancy = (
+            win_prob
             *
-            100
+            all_avg_profit_pct
+        ) - (
+            loss_prob
+            *
+            all_avg_loss_pct
         )
 
-        v_avg_win = (
-            v_wins["ROI_Percent"].mean()
-            if not v_wins.empty
-            else 0
-        )
+        if money_rr_ratio > 0:
 
-        v_avg_loss = (
-            abs(
-                v_losses[
-                    "ROI_Percent"
-                ].mean()
+            kelly_fraction = (
+                win_prob
+                -
+                (
+                    loss_prob
+                    /
+                    money_rr_ratio
+                )
             )
-            if not v_losses.empty
-            else 0
+
+            kelly_pct = max(
+                0.0,
+                kelly_fraction * 100
+            )
+
+        else:
+
+            kelly_pct = 0.0
+
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+
+        m1.metric(
+            "💰 누적 총 손익",
+            f"{total_pl:,.0f}원"
         )
 
-        v_rr = (
-            v_avg_win
-            /
-            v_avg_loss
-            if v_avg_loss > 0
-            else 0
+        m2.metric(
+            "🎯 전체 승률",
+            f"{win_rate:.1f}%"
         )
 
-        v_expectancy = (
-            (v_win_rate / 100)
-            * v_avg_win
-            -
-            (1 - v_win_rate / 100)
-            * v_avg_loss
+        m3.metric(
+            "🔮 기간 기댓값",
+            f"{expectancy:.2f}%"
         )
 
-        c1, c2, c3 = st.columns(3)
-
-        c1.metric(
-            "승률",
-            f"{v_win_rate:.1f}%"
+        m4.metric(
+            "💎 Profit Factor",
+            f"{total_pf:.2f}"
         )
 
-        c2.metric(
-            "평균 손익비",
-            f"{v_rr:.2f}:1"
+        m5.metric(
+            "⚖️ 켈리 베팅 비중",
+            f"{kelly_pct:.1f}%"
         )
 
-        c3.metric(
-            "기대값",
-            f"{v_expectancy:+.2f}%"
-        )
 
         st.divider()
-
-        scatter = (
-            alt.Chart(vic_df)
-            .mark_circle(size=100)
-            .encode(
-                x=alt.X(
-                    "Entry_Date:T",
-                    title="진입일"
-                ),
-                y=alt.Y(
-                    "ROI_Percent:Q",
-                    title="수익률"
-                ),
-                tooltip=[
-                    "Ticker",
-                    "Entry_Date",
-                    "ROI_Percent",
-                    "P_L_Amount"
-                ]
-            )
-            .interactive()
-        )
-
-        st.altair_chart(
-            scatter,
-            use_container_width=True
-        )
-
-
-# =========================================================
-# TAB 6
-# R MULTIPLE
-# =========================================================
-
-with tab6:
-
-    st.subheader(
-        "🎯 R-배수 분석"
-    )
-
-    valid_r_df = df[
-        df["Risk_Amount"] > 0
-    ].copy()
-
-    if valid_r_df.empty:
-
-        st.info(
-            "손절가를 입력한 거래가 아직 없습니다."
-        )
 
         st.markdown(
-            """
-            ### R 분석을 사용하려면
-
-            거래 입력 화면에서
-
-            **매수가 → 손절가 → 매도**
-
-            를 입력해주세요.
-
-            그러면 앱이 자동으로
-
-            `+2R`
-
-            `-1R`
-
-            `+3.5R`
-
-            같은 방식으로 계산합니다.
-            """
+            "##### 💵 금액 성적표"
         )
 
-    else:
-
-        avg_r = (
-            valid_r_df["R_Multiple"]
-            .mean()
-        )
-
-        max_r = (
-            valid_r_df["R_Multiple"]
-            .max()
-        )
-
-        min_r = (
-            valid_r_df["R_Multiple"]
-            .min()
-        )
-
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
 
         c1.metric(
-            "평균 R",
-            f"{avg_r:+.2f}R"
+            "평균 수익금",
+            f"{all_avg_profit_amt:,.0f}원"
         )
 
         c2.metric(
-            "최고 R",
-            f"{max_r:+.2f}R"
+            "평균 손실금",
+            f"{all_avg_loss_amt:,.0f}원"
         )
 
         c3.metric(
-            "최저 R",
-            f"{min_r:+.2f}R"
+            "⚖️ 금액 손익비",
+            f"{money_rr_ratio:.2f}"
         )
+
+        c4.metric(
+            "🛒 총 매수 대금",
+            f"{df['Buy_Amount'].sum():,.0f}원"
+        )
+
+
+        st.markdown(
+            "##### 📊 기간 성적표"
+        )
+
+        c5, c6, c7, c8 = st.columns(4)
+
+        c5.metric(
+            "평균 수익률",
+            f"+{all_avg_profit_pct:.2f}%"
+        )
+
+        c6.metric(
+            "평균 손실률",
+            f"-{all_avg_loss_pct:.2f}%"
+        )
+
+        c7.metric(
+            "⚖️ 기간 손익비",
+            f"{period_rr_ratio:.2f}"
+        )
+
+        c8.metric(
+            "📝 총 거래 횟수",
+            f"{total_cnt:,}회"
+        )
+
 
         st.divider()
 
-        r_chart_df = (
-            valid_r_df
-            .sort_values("Entry_Date")
-            .copy()
+        st.subheader(
+            "🚀 내 계좌 vs KOSPI 지수"
         )
 
-        r_chart_df[
-            "Cumulative_R"
-        ] = (
-            r_chart_df["R_Multiple"]
+        daily_df = (
+            df
+            .groupby("Date")[
+                "P_L_Amount"
+            ]
+            .sum()
+            .reset_index()
+            .sort_values("Date")
+        )
+
+        daily_df["Cumulative"] = (
+            daily_df["P_L_Amount"]
             .cumsum()
         )
 
-        r_chart_df[
-            "Trade_Number"
-        ] = range(
-            1,
-            len(r_chart_df) + 1
-        )
+        try:
 
-        chart = (
-            alt.Chart(
-                r_chart_df
+            start = (
+                daily_df["Date"]
+                .min()
+                .strftime("%Y-%m-%d")
             )
-            .mark_line(
-                strokeWidth=3
-            )
-            .encode(
-                x=alt.X(
-                    "Trade_Number:Q",
-                    title="거래 횟수"
-                ),
-                y=alt.Y(
-                    "Cumulative_R:Q",
-                    title="누적 R"
-                ),
-                tooltip=[
-                    "Ticker",
-                    "R_Multiple",
-                    "Cumulative_R"
-                ]
-            )
-            .interactive()
-        )
 
-        st.altair_chart(
-            chart,
-            use_container_width=True
-        )
+            kospi = yf.download(
+                "^KS11",
+                start=start,
+                progress=False
+            )["Close"].reset_index()
 
-
-# =========================================================
-# TAB 7
-# PROFIT / LOSS DISTRIBUTION
-# =========================================================
-
-with tab7:
-
-    st.subheader(
-        "🔔 손익 분포"
-    )
-
-    bin_step = st.slider(
-        "구간 크기 (%)",
-        0.5,
-        10.0,
-        2.5,
-        0.5
-    )
-
-    hist_chart = (
-        alt.Chart(df)
-        .mark_bar()
-        .encode(
-            x=alt.X(
-                "ROI_Percent",
-                bin=alt.Bin(
-                    step=bin_step
-                ),
-                title="수익률 (%)"
-            ),
-            y=alt.Y(
-                "count()",
-                title="거래 횟수"
-            ),
-            tooltip=[
-                "count()"
+            kospi.columns = [
+                "Date",
+                "KOSPI"
             ]
+
+            kospi["Date"] = pd.to_datetime(
+                kospi["Date"]
+            ).dt.tz_localize(None)
+
+            base = alt.Chart(
+                daily_df
+            ).encode(
+                x="Date:T"
+            )
+
+            my_chart = (
+                base
+                .mark_line(
+                    color="#00AA00",
+                    strokeWidth=3
+                )
+                .encode(
+                    y=alt.Y(
+                        "Cumulative:Q",
+                        title="내 수익"
+                    ),
+                    tooltip=[
+                        "Date",
+                        "Cumulative"
+                    ]
+                )
+            )
+
+            kospi_chart = (
+                alt.Chart(kospi)
+                .mark_line(
+                    color="#FF4444",
+                    strokeDash=[5, 5]
+                )
+                .encode(
+                    x="Date:T",
+                    y=alt.Y(
+                        "KOSPI:Q",
+                        title="KOSPI",
+                        scale=alt.Scale(
+                            zero=False
+                        )
+                    )
+                )
+            )
+
+            st.altair_chart(
+                alt.layer(
+                    my_chart,
+                    kospi_chart
+                ).resolve_scale(
+                    y="independent"
+                ),
+                use_container_width=True
+            )
+
+        except Exception:
+
+            st.line_chart(
+                daily_df.set_index(
+                    "Date"
+                )["Cumulative"]
+            )
+
+
+        st.subheader(
+            "📊 월별 손익 흐름"
         )
-        .properties(
-            height=400
-        )
-    )
 
-    st.altair_chart(
-        hist_chart,
-        use_container_width=True
-    )
-
-    skew = (
-        df["ROI_Percent"]
-        .skew()
-    )
-
-    st.metric(
-        "수익률 분포 왜도",
-        f"{skew:.2f}"
-    )
-
-    if skew > 0.5:
-
-        st.success(
-            "수익 쪽 꼬리가 긴 분포입니다."
-        )
-
-    elif skew < -0.5:
-
-        st.warning(
-            "손실 쪽 꼬리가 긴 분포입니다."
-        )
-
-    else:
-
-        st.info(
-            "수익과 손실 분포가 비교적 대칭적입니다."
+        st.bar_chart(
+            df.groupby(
+                "YearMonth"
+            )[
+                "P_L_Amount"
+            ].sum()
         )
 
 
-# =========================================================
-# TAB 8
-# PERSONAL TRADING PATTERN
-# =========================================================
+    # ========================================================
+    # TAB 2 : 월별
+    # ========================================================
 
-with tab8:
+    with tab2:
 
-    st.subheader(
-        "🧠 나의 매매 패턴"
-    )
+        st.subheader(
+            "📅 월별 상세 성적표"
+        )
 
-    st.caption(
-        "여기가 앞으로 Trading Master의 핵심 기능이 될 부분입니다."
-    )
+        monthly_stats = []
 
-    # -----------------------------------------------------
-    # Strategy Analysis
-    # -----------------------------------------------------
-
-    if (
-        "Strategy" in df.columns
-        and df["Strategy"].astype(str).str.strip().ne("").any()
-    ):
-
-        strategy_stats = []
-
-        for strategy, group in df.groupby(
-            "Strategy"
+        for ym, group in df.groupby(
+            "YearMonth"
         ):
 
-            strategy_wins = group[
-                group["P_L_Amount"] > 0
+            g_wins = group[
+                group["ROI_Percent"] > 0
             ]
 
-            strategy_losses = group[
-                group["P_L_Amount"] <= 0
+            g_losses = group[
+                group["ROI_Percent"] <= 0
             ]
 
-            count = len(group)
-
-            win_rate_s = (
-                len(strategy_wins)
-                /
-                count
-                *
-                100
-                if count > 0
-                else 0
-            )
-
-            gross_profit_s = (
-                strategy_wins[
-                    "P_L_Amount"
-                ].sum()
-            )
-
-            gross_loss_s = abs(
-                strategy_losses[
-                    "P_L_Amount"
-                ].sum()
-            )
-
-            pf_s = (
-                gross_profit_s
-                /
-                gross_loss_s
-                if gross_loss_s > 0
-                else 0
-            )
-
-            avg_roi_s = (
+            gross_profit = (
                 group[
+                    group["P_L_Amount"] > 0
+                ]["P_L_Amount"].sum()
+            )
+
+            gross_loss = abs(
+                group[
+                    group["P_L_Amount"] <= 0
+                ]["P_L_Amount"].sum()
+            )
+
+            m_avg_profit_amt = (
+                group[
+                    group["P_L_Amount"] > 0
+                ]["P_L_Amount"].mean()
+                if not group[
+                    group["P_L_Amount"] > 0
+                ].empty
+                else 0
+            )
+
+            m_avg_loss_amt = (
+                group[
+                    group["P_L_Amount"] <= 0
+                ]["P_L_Amount"].mean()
+                if not group[
+                    group["P_L_Amount"] <= 0
+                ].empty
+                else 0
+            )
+
+            pf = (
+                gross_profit
+                /
+                gross_loss
+                if gross_loss > 0
+                else 0
+            )
+
+            m_avg_gain_pct = (
+                g_wins[
                     "ROI_Percent"
                 ].mean()
+                if not g_wins.empty
+                else 0
             )
 
-            avg_r_s = (
+            m_avg_loss_pct = abs(
+                g_losses[
+                    "ROI_Percent"
+                ].mean()
+            ) if not g_losses.empty else 0
+
+            m_wl_ratio = (
+                m_avg_gain_pct
+                /
+                m_avg_loss_pct
+                if m_avg_loss_pct > 0
+                else 0
+            )
+
+            m_buy_vol = (
                 group[
-                    "R_Multiple"
-                ]
-                .replace(
-                    [np.inf, -np.inf],
-                    np.nan
-                )
-                .mean()
+                    "Buy_Amount"
+                ].sum()
             )
 
-            strategy_stats.append(
+            m_count = len(group)
+
+            win_prob = (
+                len(g_wins)
+                /
+                m_count
+                if m_count > 0
+                else 0
+            )
+
+            loss_prob = (
+                1 - win_prob
+            )
+
+            m_expectancy = (
+                win_prob
+                *
+                m_avg_gain_pct
+            ) - (
+                loss_prob
+                *
+                m_avg_loss_pct
+            )
+
+            monthly_stats.append(
                 {
-                    "전략": strategy,
-                    "거래횟수": count,
-                    "승률": win_rate_s,
-                    "PF": pf_s,
-                    "평균수익률": avg_roi_s,
-                    "평균R": avg_r_s,
-                    "총손익": group[
-                        "P_L_Amount"
-                    ].sum()
-                }
-            )
-
-        strategy_df = pd.DataFrame(
-            strategy_stats
-        ).sort_values(
-            "총손익",
-            ascending=False
-        )
-
-        st.markdown(
-            "### 🎯 전략별 성적"
-        )
-
-        st.dataframe(
-            strategy_df.style.map(
-                color_profit_loss,
-                subset=[
-                    "총손익",
-                    "평균수익률"
-                ]
-            ).format(
-                {
-                    "거래횟수": "{:,}",
-                    "승률": "{:.1f}%",
-                    "PF": "{:.2f}",
-                    "평균수익률": "{:+.2f}%",
-                    "평균R": "{:+.2f}R",
-                    "총손익": "{:+,.0f}원"
-                }
-            ),
-            use_container_width=True
-        )
-
-    # -----------------------------------------------------
-    # Holding Period Analysis
-    # -----------------------------------------------------
-
-    st.markdown(
-        "### 📅 보유기간별 성적"
-    )
-
-    holding_df = df.copy()
-
-    holding_df["보유구간"] = pd.cut(
-        holding_df["Holding_Days"],
-        bins=[
-            -1,
-            1,
-            3,
-            5,
-            10,
-            20,
-            99999
-        ],
-        labels=[
-            "당일",
-            "2~3일",
-            "4~5일",
-            "6~10일",
-            "11~20일",
-            "21일 이상"
-        ]
-    )
-
-    holding_stats = (
-        holding_df
-        .groupby(
-            "보유구간",
-            observed=False
-        )
-        .agg(
-            거래횟수=(
-                "P_L_Amount",
-                "count"
-            ),
-            평균수익률=(
-                "ROI_Percent",
-                "mean"
-            ),
-            평균R=(
-                "R_Multiple",
-                "mean"
-            ),
-            총손익=(
-                "P_L_Amount",
-                "sum"
-            )
-        )
-        .reset_index()
-    )
-
-    st.dataframe(
-        holding_stats.style.map(
-            color_profit_loss,
-            subset=[
-                "평균수익률",
-                "총손익"
-            ]
-        ).format(
-            {
-                "거래횟수": "{:,}",
-                "평균수익률": "{:+.2f}%",
-                "평균R": "{:+.2f}R",
-                "총손익": "{:+,.0f}원"
-            }
-        ),
-        use_container_width=True
-    )
-
-    # -----------------------------------------------------
-    # Emotion Analysis
-    # -----------------------------------------------------
-
-    st.markdown(
-        "### 🧠 감정별 성적"
-    )
-
-    emotion_df = (
-        df[
-            df["Emotion"]
-            .astype(str)
-            .str.strip()
-            != ""
-        ]
-        .groupby("Emotion")
-        .agg(
-            거래횟수=(
-                "P_L_Amount",
-                "count"
-            ),
-            평균수익률=(
-                "ROI_Percent",
-                "mean"
-            ),
-            평균R=(
-                "R_Multiple",
-                "mean"
-            ),
-            총손익=(
-                "P_L_Amount",
-                "sum"
-            )
-        )
-        .reset_index()
-    )
-
-    if not emotion_df.empty:
-
-        st.dataframe(
-            emotion_df.style.map(
-                color_profit_loss,
-                subset=[
-                    "평균수익률",
-                    "총손익"
-                ]
-            ).format(
-                {
-                    "거래횟수": "{:,}",
-                    "평균수익률": "{:+.2f}%",
-                    "평균R": "{:+.2f}R",
-                    "총손익": "{:+,.0f}원"
-                }
-            ),
-            use_container_width=True
-        )
-
-    # -----------------------------------------------------
-    # Mistake Analysis
-    # -----------------------------------------------------
-
-    st.markdown(
-        "### ⚠️ 실수 분석"
-    )
-
-    mistake_rows = []
-
-    for _, row in df.iterrows():
-
-        tags = str(
-            row.get(
-                "Mistake_Tags",
-                ""
-            )
-        )
-
-        if not tags:
-            continue
-
-        for tag in tags.split(","):
-
-            tag = tag.strip()
-
-            if tag:
-                mistake_rows.append(
-                    {
-                        "실수": tag,
-                        "손익": row[
+                    "기간": str(ym),
+                    "총 손익": float(
+                        group[
                             "P_L_Amount"
-                        ],
-                        "수익률": row[
-                            "ROI_Percent"
-                        ]
-                    }
-                )
+                        ].sum()
+                    ),
+                    "평균수익": float(
+                        m_avg_profit_amt
+                    ),
+                    "평균손실": float(
+                        m_avg_loss_amt
+                    ),
+                    "거래횟수": int(
+                        m_count
+                    ),
+                    "승률": float(
+                        win_prob * 100
+                    ),
+                    "손익비": float(
+                        m_wl_ratio
+                    ),
+                    "PF": float(
+                        pf
+                    ),
+                    "기대수익": float(
+                        m_expectancy
+                    ),
+                    "매수총액": float(
+                        m_buy_vol
+                    )
+                }
+            )
 
-    if mistake_rows:
-
-        mistake_df = (
+        df_monthly = (
             pd.DataFrame(
-                mistake_rows
+                monthly_stats
             )
-            .groupby("실수")
-            .agg(
-                발생횟수=(
-                    "손익",
-                    "count"
-                ),
-                평균손익=(
-                    "손익",
-                    "mean"
-                ),
-                평균수익률=(
-                    "수익률",
-                    "mean"
-                )
-            )
-            .reset_index()
             .sort_values(
-                "발생횟수",
+                "기간",
                 ascending=False
             )
         )
 
+        format_dict_m = {
+            "총 손익": "{:+,.0f}원",
+            "평균수익": "{:,.0f}원",
+            "평균손실": "{:,.0f}원",
+            "거래횟수": "{:,}회",
+            "승률": "{:.1f}%",
+            "손익비": "{:.2f}",
+            "PF": "{:.2f}",
+            "기대수익": "{:+.2f}%",
+            "매수총액": "{:,.0f}원"
+        }
+
+        try:
+
+            styled_monthly = (
+                df_monthly.style
+                .map(
+                    color_profit_loss,
+                    subset=[
+                        "총 손익",
+                        "기대수익"
+                    ]
+                )
+                .format(
+                    format_dict_m
+                )
+            )
+
+        except AttributeError:
+
+            styled_monthly = (
+                df_monthly.style
+                .applymap(
+                    color_profit_loss,
+                    subset=[
+                        "총 손익",
+                        "기대수익"
+                    ]
+                )
+                .format(
+                    format_dict_m
+                )
+            )
+
         st.dataframe(
-            mistake_df.style.map(
-                color_profit_loss,
-                subset=[
-                    "평균손익",
-                    "평균수익률"
-                ]
-            ).format(
-                {
-                    "발생횟수": "{:,}",
-                    "평균손익": "{:+,.0f}원",
-                    "평균수익률": "{:+.2f}%"
-                }
-            ),
+            styled_monthly,
             use_container_width=True
         )
 
-    else:
+
+    # ========================================================
+    # TAB 3 : 연도별
+    # ========================================================
+
+    with tab3:
+
+        st.subheader(
+            "📆 연도별 종합 성적표"
+        )
+
+        yearly_stats = []
+
+        for y, group in df.groupby(
+            "Year"
+        ):
+
+            g_wins = group[
+                group["ROI_Percent"] > 0
+            ]
+
+            g_losses = group[
+                group["ROI_Percent"] <= 0
+            ]
+
+            gross_profit = (
+                group[
+                    group["P_L_Amount"] > 0
+                ]["P_L_Amount"].sum()
+            )
+
+            gross_loss = abs(
+                group[
+                    group["P_L_Amount"] <= 0
+                ]["P_L_Amount"].sum()
+            )
+
+            y_avg_profit_amt = (
+                group[
+                    group["P_L_Amount"] > 0
+                ]["P_L_Amount"].mean()
+                if not group[
+                    group["P_L_Amount"] > 0
+                ].empty
+                else 0
+            )
+
+            y_avg_loss_amt = (
+                group[
+                    group["P_L_Amount"] <= 0
+                ]["P_L_Amount"].mean()
+                if not group[
+                    group["P_L_Amount"] <= 0
+                ].empty
+                else 0
+            )
+
+            pf = (
+                gross_profit
+                /
+                gross_loss
+                if gross_loss > 0
+                else 0
+            )
+
+            y_avg_gain_pct = (
+                g_wins[
+                    "ROI_Percent"
+                ].mean()
+                if not g_wins.empty
+                else 0
+            )
+
+            y_avg_loss_pct = abs(
+                g_losses[
+                    "ROI_Percent"
+                ].mean()
+            ) if not g_losses.empty else 0
+
+            y_wl_ratio = (
+                y_avg_gain_pct
+                /
+                y_avg_loss_pct
+                if y_avg_loss_pct > 0
+                else 0
+            )
+
+            y_buy_vol = (
+                group[
+                    "Buy_Amount"
+                ].sum()
+            )
+
+            y_count = len(group)
+
+            win_prob = (
+                len(g_wins)
+                /
+                y_count
+                if y_count > 0
+                else 0
+            )
+
+            loss_prob = (
+                1 - win_prob
+            )
+
+            y_expectancy = (
+                win_prob
+                *
+                y_avg_gain_pct
+            ) - (
+                loss_prob
+                *
+                y_avg_loss_pct
+            )
+
+            yearly_stats.append(
+                {
+                    "연도": int(y),
+                    "총 손익": float(
+                        group[
+                            "P_L_Amount"
+                        ].sum()
+                    ),
+                    "평균수익": float(
+                        y_avg_profit_amt
+                    ),
+                    "평균손실": float(
+                        y_avg_loss_amt
+                    ),
+                    "거래횟수": int(
+                        y_count
+                    ),
+                    "승률": float(
+                        win_prob * 100
+                    ),
+                    "손익비": float(
+                        y_wl_ratio
+                    ),
+                    "PF": float(
+                        pf
+                    ),
+                    "기대수익": float(
+                        y_expectancy
+                    ),
+                    "매수총액": float(
+                        y_buy_vol
+                    )
+                }
+            )
+
+        df_yearly = (
+            pd.DataFrame(
+                yearly_stats
+            )
+            .sort_values(
+                "연도",
+                ascending=False
+            )
+        )
+
+        format_dict_y = {
+            "총 손익": "{:+,.0f}원",
+            "평균수익": "{:,.0f}원",
+            "평균손실": "{:,.0f}원",
+            "거래횟수": "{:,}회",
+            "승률": "{:.1f}%",
+            "손익비": "{:.2f}",
+            "PF": "{:.2f}",
+            "기대수익": "{:+.2f}%",
+            "매수총액": "{:,.0f}원"
+        }
+
+        try:
+
+            styled_yearly = (
+                df_yearly.style
+                .map(
+                    color_profit_loss,
+                    subset=[
+                        "총 손익",
+                        "기대수익"
+                    ]
+                )
+                .format(
+                    format_dict_y
+                )
+            )
+
+        except AttributeError:
+
+            styled_yearly = (
+                df_yearly.style
+                .applymap(
+                    color_profit_loss,
+                    subset=[
+                        "총 손익",
+                        "기대수익"
+                    ]
+                )
+                .format(
+                    format_dict_y
+                )
+            )
+
+        st.dataframe(
+            styled_yearly,
+            use_container_width=True
+        )
+
+
+    # ========================================================
+    # TAB 4 : 원본
+    # ========================================================
+
+    with tab4:
+
+        df_sorted = (
+            df
+            .sort_values(
+                "Date",
+                ascending=False
+            )
+        )
+
+        display_cols = [
+            "Date",
+            "Ticker",
+            "Buy_Amount",
+            "Sell_Amount",
+            "P_L_Amount",
+            "ROI_Percent",
+            "Memo"
+        ]
+
+        display_df = df_sorted[
+            display_cols
+        ].copy()
+
+        try:
+
+            styled_df = (
+                display_df.style
+                .map(
+                    color_profit_loss,
+                    subset=[
+                        "ROI_Percent",
+                        "P_L_Amount"
+                    ]
+                )
+                .format(
+                    {
+                        "Buy_Amount": "{:,.0f}",
+                        "Sell_Amount": "{:,.0f}",
+                        "ROI_Percent": "{:+.2f}%",
+                        "P_L_Amount": "{:+,.0f}"
+                    }
+                )
+            )
+
+        except AttributeError:
+
+            styled_df = (
+                display_df.style
+                .applymap(
+                    color_profit_loss,
+                    subset=[
+                        "ROI_Percent",
+                        "P_L_Amount"
+                    ]
+                )
+                .format(
+                    {
+                        "Buy_Amount": "{:,.0f}",
+                        "Sell_Amount": "{:,.0f}",
+                        "ROI_Percent": "{:+.2f}%",
+                        "P_L_Amount": "{:+,.0f}"
+                    }
+                )
+            )
+
+        st.dataframe(
+            styled_df,
+            use_container_width=True
+        )
+
+
+    # ========================================================
+    # TAB 5 : Victor Sperandeo
+    # ========================================================
+
+    with tab5:
+
+        st.subheader(
+            "⚖️ Victor Sperandeo's Reward-to-Risk Analysis"
+        )
+
+        st.markdown(
+            "> **\"최소 3:1의 보상 비율이 나오지 않는 거래는 시작조차 하지 마라.\"**"
+        )
+
+        vic_period = st.radio(
+            "📅 분석 기간 선택",
+            [
+                "전체",
+                "최근 1개월",
+                "최근 3개월",
+                "최근 6개월",
+                "최근 1년"
+            ],
+            horizontal=True,
+            key="vic_radio"
+        )
+
+        vic_df = df.copy()
+
+        today = datetime.today()
+
+        if vic_period == "최근 1개월":
+
+            vic_df = vic_df[
+                vic_df["Date"]
+                >=
+                (
+                    today
+                    -
+                    timedelta(days=30)
+                )
+            ]
+
+        elif vic_period == "최근 3개월":
+
+            vic_df = vic_df[
+                vic_df["Date"]
+                >=
+                (
+                    today
+                    -
+                    timedelta(days=90)
+                )
+            ]
+
+        elif vic_period == "최근 6개월":
+
+            vic_df = vic_df[
+                vic_df["Date"]
+                >=
+                (
+                    today
+                    -
+                    timedelta(days=180)
+                )
+            ]
+
+        elif vic_period == "최근 1년":
+
+            vic_df = vic_df[
+                vic_df["Date"]
+                >=
+                (
+                    today
+                    -
+                    timedelta(days=365)
+                )
+            ]
+
+        if not vic_df.empty:
+
+            v_wins = vic_df[
+                vic_df["ROI_Percent"] > 0
+            ]
+
+            v_losses = vic_df[
+                vic_df["ROI_Percent"] <= 0
+            ]
+
+            v_win_rate = (
+                len(v_wins)
+                /
+                len(vic_df)
+                *
+                100
+            )
+
+            v_avg_win = (
+                v_wins[
+                    "ROI_Percent"
+                ].mean()
+                if not v_wins.empty
+                else 0
+            )
+
+            v_avg_loss = abs(
+                v_losses[
+                    "ROI_Percent"
+                ].mean()
+            ) if not v_losses.empty else 0
+
+            v_rr_ratio = (
+                v_avg_win
+                /
+                v_avg_loss
+                if v_avg_loss > 0
+                else 0
+            )
+
+            v_win_prob = (
+                v_win_rate / 100
+            )
+
+            v_loss_prob = (
+                1 - v_win_prob
+            )
+
+            v_expectancy = (
+                v_win_prob
+                *
+                v_avg_win
+            ) - (
+                v_loss_prob
+                *
+                v_avg_loss
+            )
+
+            st.caption(
+                f"🔎 **{vic_period}** 데이터 기준 분석 ({len(vic_df)}건)"
+            )
+
+            c1, c2, c3 = st.columns(3)
+
+            c1.metric(
+                "기간 손익비",
+                f"{v_rr_ratio:.2f} : 1"
+            )
+
+            c2.metric(
+                "기간 기댓값",
+                f"{v_expectancy:.2f}%"
+            )
+
+            c3.metric(
+                "빅터의 목표 기준",
+                "3.0 : 1"
+            )
+
+            st.divider()
+
+            target_roi_period = (
+                v_avg_loss * 3
+                if v_avg_loss > 0
+                else 10
+            )
+
+            conditions = [
+                (
+                    vic_df["ROI_Percent"]
+                    >= target_roi_period
+                ),
+                (
+                    vic_df["ROI_Percent"] > 0
+                )
+            ]
+
+            colors = [
+                "#00CC00",
+                "#F1C40F"
+            ]
+
+            vic_df["Color_Hex"] = np.select(
+                conditions,
+                colors,
+                default="#FF4B4B"
+            )
+
+            scatter_chart = (
+                alt.Chart(vic_df)
+                .mark_circle(size=100)
+                .encode(
+                    x=alt.X(
+                        "Date",
+                        title="거래 일자"
+                    ),
+                    y=alt.Y(
+                        "ROI_Percent",
+                        title="수익률 (%)"
+                    ),
+                    color=alt.Color(
+                        "Color_Hex",
+                        scale=None,
+                        legend=None
+                    ),
+                    tooltip=[
+                        "Ticker",
+                        "Date",
+                        "ROI_Percent",
+                        "P_L_Amount"
+                    ]
+                )
+                .interactive()
+            )
+
+            rule_line = (
+                alt.Chart(
+                    pd.DataFrame(
+                        {
+                            "y": [
+                                target_roi_period
+                            ]
+                        }
+                    )
+                )
+                .mark_rule(
+                    color="blue",
+                    strokeDash=[3, 3]
+                )
+                .encode(
+                    y="y"
+                )
+            )
+
+            st.altair_chart(
+                scatter_chart + rule_line,
+                use_container_width=True
+            )
+
+        else:
+
+            st.info(
+                f"📭 선택하신 **{vic_period}**에는 매매 기록이 없습니다."
+            )
+
+
+    # ========================================================
+    # TAB 6 : R 배수
+    # ========================================================
+
+    with tab6:
+
+        st.subheader(
+            "🎯 R-배수 분석"
+        )
+
+        st.markdown(
+            "**'R'은 나의 위험(Risk) 단위입니다.**"
+        )
+
+        r_period = st.radio(
+            "📅 분석 기간 선택",
+            [
+                "전체",
+                "최근 1개월",
+                "최근 3개월",
+                "최근 6개월",
+                "최근 1년"
+            ],
+            horizontal=True,
+            key="r_radio"
+        )
+
+        r_df = df.copy()
+
+        today = datetime.today()
+
+        if r_period == "최근 1개월":
+
+            r_df = r_df[
+                r_df["Date"]
+                >=
+                today - timedelta(days=30)
+            ]
+
+        elif r_period == "최근 3개월":
+
+            r_df = r_df[
+                r_df["Date"]
+                >=
+                today - timedelta(days=90)
+            ]
+
+        elif r_period == "최근 6개월":
+
+            r_df = r_df[
+                r_df["Date"]
+                >=
+                today - timedelta(days=180)
+            ]
+
+        elif r_period == "최근 1년":
+
+            r_df = r_df[
+                r_df["Date"]
+                >=
+                today - timedelta(days=365)
+            ]
+
+        if not r_df.empty:
+
+            r_losses = r_df[
+                r_df["P_L_Amount"] < 0
+            ]
+
+            if not r_losses.empty:
+
+                avg_loss_abs = abs(
+                    r_losses[
+                        "P_L_Amount"
+                    ].mean()
+                )
+
+            else:
+
+                all_losses = df[
+                    df["P_L_Amount"] < 0
+                ]
+
+                avg_loss_abs = (
+                    abs(
+                        all_losses[
+                            "P_L_Amount"
+                        ].mean()
+                    )
+                    if not all_losses.empty
+                    else 1
+                )
+
+            r_df["R_Value"] = (
+                r_df["P_L_Amount"]
+                /
+                avg_loss_abs
+            )
+
+            c1, c2, c3 = st.columns(3)
+
+            c1.metric(
+                f"나의 1R ({r_period})",
+                f"{avg_loss_abs:,.0f}원"
+            )
+
+            c2.metric(
+                "평균 R-배수",
+                f"{r_df['R_Value'].mean():.2f}R"
+            )
+
+            c3.metric(
+                "최고 R-배수",
+                f"{r_df['R_Value'].max():.2f}R"
+            )
+
+            st.divider()
+
+            df_sorted_r = (
+                r_df
+                .sort_values("Date")
+                .copy()
+            )
+
+            df_sorted_r[
+                "Cumulative_R"
+            ] = (
+                df_sorted_r[
+                    "R_Value"
+                ].cumsum()
+            )
+
+            df_sorted_r[
+                "Trade_Num"
+            ] = range(
+                1,
+                len(df_sorted_r) + 1
+            )
+
+            line_r = (
+                alt.Chart(df_sorted_r)
+                .mark_line(color="blue")
+                .encode(
+                    x=alt.X(
+                        "Trade_Num",
+                        title="거래 횟수"
+                    ),
+                    y=alt.Y(
+                        "Cumulative_R",
+                        title="누적 R"
+                    ),
+                    tooltip=[
+                        "Date",
+                        "R_Value",
+                        "Cumulative_R"
+                    ]
+                )
+            )
+
+            st.altair_chart(
+                line_r,
+                use_container_width=True
+            )
+
+        else:
+
+            st.info(
+                f"📭 선택하신 **{r_period}**에는 매매 기록이 없습니다."
+            )
+
+
+    # ========================================================
+    # TAB 7 : 손익 분포
+    # ========================================================
+
+    with tab7:
+
+        st.subheader(
+            "🔔 손익 분포"
+        )
+
+        st.markdown(
+            "**왼쪽(손실)은 짧게, 오른쪽(수익)은 길게!**"
+        )
+
+        bin_step = 2.5
+
+        df_dist = df.copy()
+
+        hist_chart = (
+            alt.Chart(df_dist)
+            .mark_bar()
+            .encode(
+                x=alt.X(
+                    "ROI_Percent",
+                    bin=alt.Bin(
+                        step=bin_step
+                    ),
+                    title="수익률 구간 (%)"
+                ),
+                y=alt.Y(
+                    "count()",
+                    title="거래 횟수"
+                ),
+                color=alt.condition(
+                    alt.datum.ROI_Percent > 0,
+                    alt.value("#00AA00"),
+                    alt.value("#FF4444")
+                ),
+                tooltip=[
+                    "count()",
+                    alt.Tooltip(
+                        "ROI_Percent",
+                        bin=True,
+                        title="수익률 구간"
+                    )
+                ]
+            )
+            .properties(
+                height=400
+            )
+        )
+
+        rule = (
+            alt.Chart(
+                pd.DataFrame(
+                    {"x": [0]}
+                )
+            )
+            .mark_rule(
+                color="black",
+                strokeDash=[2, 2]
+            )
+            .encode(
+                x="x"
+            )
+        )
+
+        st.altair_chart(
+            hist_chart + rule,
+            use_container_width=True
+        )
+
+        skew = (
+            df["ROI_Percent"].skew()
+        )
 
         st.info(
-            "아직 실수 태그 데이터가 없습니다."
+            f"📊 **분포도 분석 "
+            f"(Skewness: {skew:.2f})**"
+        )
+
+        if skew > 0.5:
+
+            st.success(
+                "✅ Positive Skew — "
+                "수익 쪽 꼬리가 길게 나타납니다."
+            )
+
+        elif skew < -0.5:
+
+            st.error(
+                "🚨 Negative Skew — "
+                "손실 쪽 꼬리가 길게 나타납니다."
+            )
+
+        else:
+
+            st.warning(
+                "⚠️ Symmetric — "
+                "수익과 손실 패턴이 비슷합니다."
+            )
+
+
+    # ========================================================
+    # TAB 8 : 거래 관리
+    # ========================================================
+
+    with tab8:
+
+        st.subheader(
+            "🛠️ 거래 관리"
+        )
+
+        st.caption(
+            "거래를 선택하면 상세 내용을 확인하고 "
+            "수정하거나 삭제할 수 있습니다."
+        )
+
+        # ----------------------------------------------------
+        # 거래 목록
+        # ----------------------------------------------------
+
+        manage_df = df.copy()
+
+        manage_df = (
+            manage_df
+            .sort_values(
+                "Date",
+                ascending=False
+            )
+        )
+
+        manage_df["표시"] = (
+            manage_df["Date"]
+            .dt.strftime(
+                "%Y-%m-%d"
+            )
+            +
+            "  |  "
+            +
+            manage_df["Ticker"]
+            +
+            "  |  "
+            +
+            manage_df[
+                "ROI_Percent"
+            ].map(
+                lambda x:
+                f"{x:+.2f}%"
+            )
+            +
+            "  |  "
+            +
+            manage_df[
+                "P_L_Amount"
+            ].map(
+                lambda x:
+                f"{x:+,.0f}원"
+            )
+        )
+
+        st.markdown(
+            "### 📋 거래 선택"
+        )
+
+        selected_id = st.selectbox(
+            "수정 또는 삭제할 거래",
+            options=manage_df[
+                "Trade_ID"
+            ].tolist(),
+            format_func=lambda x:
+                manage_df.loc[
+                    manage_df[
+                        "Trade_ID"
+                    ] == x,
+                    "표시"
+                ].iloc[0],
+            key="trade_manager_select"
         )
 
 
-# =========================================================
-# 20. FOOTER
-# =========================================================
+        # ----------------------------------------------------
+        # 선택 거래
+        # ----------------------------------------------------
 
-st.divider()
+        selected_rows = manage_df[
+            manage_df[
+                "Trade_ID"
+            ] == selected_id
+        ]
 
-st.caption(
-    "💎 Trading Master 2.0 | "
-    "STEP 1 데이터 구조 개편 + STEP 2 거래 입력 화면"
-        )
+        if not selected_rows.empty:
+
+            selected = (
+                selected_rows.iloc[0]
+            )
+
+            st.divider()
+
+            st.markdown(
+                "### 🔎 거래 상세"
+            )
+
+            d1, d2, d3, d4 = st.columns(4)
+
+            d1.metric(
+                "종목",
+                selected["Ticker"]
+            )
+
+            d2.metric(
+                "거래일",
+                selected["Date"].strftime(
+                    "%Y-%m-%d"
+                )
+            )
+
+            d3.metric(
+                "수익률",
+                f"{selected['ROI_Percent']:+.2f}%"
+            )
+
+            d4.metric(
+                "손익",
+                f"{selected['P_L_Amount']:+,.0f}원"
+            )
+
+            d5, d6 = st.columns(2)
+
+            d5.metric(
+                "매수금액",
+                f"{selected['Buy_Amount']:,.0f}원"
+            )
+
+            d6.metric(
+                "매도금액",
+                f"{selected['Sell_Amount']:,.0f}원"
+            )
+
+            if str(
+                selected["Memo"]
+            ).strip():
+
+                st.info(
+                    f"📝 메모: {selected['Memo']}"
+                )
+
+
+            # =================================================
+            # 수정
+            # =================================================
+
+            st.divider()
+
+            st.markdown(
+                "### ✏️ 거래 수정"
+            )
+
+            with st.form(
+                f"edit_trade_form_{selected_id}"
+            ):
+
+                edit_date = st.date_input(
+                    "거래일",
+                    value=selected[
+                        "Date"
+                    ].date()
+                )
+
+                edit_ticker = st.text_input(
+                    "종목명",
+                    value=str(
+                        selected[
+                            "Ticker"
+                        ]
+                    )
+                )
+
+                e1, e2 = st.columns(2)
+
+                with e1:
+
+                    edit_buy = st.number_input(
+                        "매수금액",
+                        min_value=0,
+                        value=int(
+                            selected[
+                                "Buy_Amount"
+                            ]
+                        ),
+                        step=100000
+                    )
+
+                with e2:
+
+                    edit_roi = st.number_input(
+                        "수익률 (%)",
+                        value=float(
+                            selected[
+                                "ROI_Percent"
+                            ]
+                        ),
+                        format="%.2f"
+                    )
+
+                edit_pl = (
+                    edit_buy
+                    *
+                    edit_roi
+                    /
+                    100
+                )
+
+                edit_sell = (
+                    edit_buy
+                    +
+                    edit_pl
+                )
+
+                st.info(
+                    f"""
+🧮 **수정 후 자동 계산**
+
+- 손익: {edit_pl:+,.0f}원
+- 매도금액: {edit_sell:,.0f}원
+"""
+                )
+
+                edit_memo = st.text_area(
+                    "메모",
+                    value=str(
+                        selected[
+                            "Memo"
+                        ]
+                    ),
+                    height=100
+                )
+
+                update_button = st.form_submit_button(
+                    "💾 거래 수정 저장",
+                    use_container_width=True
+                )
+
+
+                # ---------------------------------------------
+                # 수정 실행
+                # ---------------------------------------------
+
+                if update_button:
+
+                    if not edit_ticker.strip():
+
+                        st.error(
+                            "종목명을 입력해주세요."
+                        )
+
+                    else:
+
+                        try:
+
+                            live_df = conn.read(
+                                worksheet=0,
+                                ttl=0
+                            )
+
+                            if live_df.empty:
+
+                                st.error(
+                                    "Google Sheets에 "
+                                    "거래 데이터가 없습니다."
+                                )
+
+                            else:
+
+                                # ---------------------------------
+                                # Trade_ID 보완
+                                # ---------------------------------
+
+                                if (
+                                    "Trade_ID"
+                                    not in live_df.columns
+                                ):
+
+                                    live_df[
+                                        "Trade_ID"
+                                    ] = [
+                                        create_legacy_trade_id(
+                                            row,
+                                            index
+                                        )
+
+                                        for index, row
+                                        in live_df.iterrows()
+                                    ]
+
+                                else:
+
+                                    for index in live_df.index:
+
+                                        current_id = (
+                                            live_df.at[
+                                                index,
+                                                "Trade_ID"
+                                            ]
+                                        )
+
+                                        if (
+                                            pd.isna(
+                                                current_id
+                                            )
+                                            or
+                                            str(
+                                                current_id
+                                            ).strip() == ""
+                                        ):
+
+                                            live_df.at[
+                                                index,
+                                                "Trade_ID"
+                                            ] = create_legacy_trade_id(
+                                                live_df.loc[
+                                                    index
+                                                ],
+                                                index
+                                            )
+
+                                # ---------------------------------
+                                # 선택 거래 찾기
+                                # ---------------------------------
+
+                                target_idx = (
+                                    live_df.index[
+                                        live_df[
+                                            "Trade_ID"
+                                        ].astype(str)
+                                        ==
+                                        str(selected_id)
+                                    ]
+                                )
+
+                                if len(
+                                    target_idx
+                                ) == 0:
+
+                                    st.error(
+                                        "수정하려는 거래를 "
+                                        "찾을 수 없습니다."
+                                    )
+
+                                else:
+
+                                    idx = target_idx[0]
+
+                                    # -----------------------------
+                                    # 데이터 수정
+                                    # -----------------------------
+
+                                    live_df.at[
+                                        idx,
+                                        "Date"
+                                    ] = edit_date.strftime(
+                                        "%Y-%m-%d"
+                                    )
+
+                                    live_df.at[
+                                        idx,
+                                        "Ticker"
+                                    ] = edit_ticker.strip()
+
+                                    live_df.at[
+                                        idx,
+                                        "Buy_Amount"
+                                    ] = edit_buy
+
+                                    live_df.at[
+                                        idx,
+                                        "Sell_Amount"
+                                    ] = edit_sell
+
+                                    live_df.at[
+                                        idx,
+                                        "P_L_Amount"
+                                    ] = edit_pl
+
+                                    live_df.at[
+                                        idx,
+                                        "ROI_Percent"
+                                    ] = edit_roi
+
+                                    live_df.at[
+                                        idx,
+                                        "Memo"
+                                    ] = edit_memo
+
+                                    # -----------------------------
+                                    # 컬럼 보장
+                                    # -----------------------------
+
+                                    for col in REQUIRED_COLUMNS:
+
+                                        if (
+                                            col
+                                            not in live_df.columns
+                                        ):
+
+                                            live_df[
+                                                col
+                                            ] = ""
+
+                                    live_df = live_df[
+                                        REQUIRED_COLUMNS
+                                    ]
+
+                                    # -----------------------------
+                                    # Google Sheets 저장
+                                    # -----------------------------
+
+                                    conn.update(
+                                        worksheet=0,
+                                        data=live_df
+                                    )
+
+                                    st.success(
+                                        f"✅ {edit_ticker} "
+                                        f"거래가 수정되었습니다."
+                                    )
+
+                                    st.rerun()
+
+                        except Exception as e:
+
+                            st.error(
+                                f"🚨 거래 수정 중 오류: {e}"
+                            )
+
+
+            # =================================================
+            # 삭제
+            # =================================================
+
+            st.divider()
+
+            st.markdown(
+                "### 🗑️ 거래 삭제"
+            )
+
+            st.warning(
+                f"""
+⚠️ **삭제 대상**
+
+종목: **{selected['Ticker']}**
+
+거래일: **{selected['Date'].strftime('%Y-%m-%d')}**
+
+수익률: **{selected['ROI_Percent']:+.2f}%**
+
+손익: **{selected['P_L_Amount']:+,.0f}원**
+
+삭제하면 Google Sheets에서도 해당 거래가 제거됩니다.
+"""
+            )
+
+            delete_confirm = st.checkbox(
+                "위 거래를 정말 삭제하겠습니다.",
+                key=f"delete_confirm_{selected_id}"
+            )
+
+            delete_button = st.button(
+                "🗑️ 이 거래 영구 삭제",
+                disabled=not delete_confirm,
+                use_container_width=True,
+                key=f"delete_button_{selected_id}"
+            )
+
+            if delete_button:
+
+                try:
+
+                    live_df = conn.read(
+                        worksheet=0,
+                        ttl=0
+                    )
+
+                    if live_df.empty:
+
+                        st.error(
+                            "삭제할 데이터가 없습니다."
+                        )
+
+                    else:
+
+                        # -----------------------------------------
+                        # Trade_ID 보완
+                        # -----------------------------------------
+
+                        if (
+                            "Trade_ID"
+                            not in live_df.columns
+                        ):
+
+                            live_df[
+                                "Trade_ID"
+                            ] = [
+                                create_legacy_trade_id(
+                                    row,
+                                    index
+                                )
+
+                                for index, row
+                                in live_df.iterrows()
+                            ]
+
+                        else:
+
+                            for index in live_df.index:
+
+                                current_id = (
+                                    live_df.at[
+                                        index,
+                                        "Trade_ID"
+                                    ]
+                                )
+
+                                if (
+                                    pd.isna(
+                                        current_id
+                                    )
+                                    or
+                                    str(
+                                        current_id
+                                    ).strip() == ""
+                                ):
+
+                                    live_df.at[
+                                        index,
+                                        "Trade_ID"
+                                    ] = create_legacy_trade_id(
+                                        live_df.loc[
+                                            index
+                                        ],
+                                        index
+                                    )
+
+                        original_count = len(
+                            live_df
+                        )
+
+                        # -----------------------------------------
+                        # 선택 거래 삭제
+                        # -----------------------------------------
+
+                        live_df = live_df[
+                            live_df[
+                                "Trade_ID"
+                            ].astype(str)
+                            !=
+                            str(selected_id)
+                        ].copy()
+
+                        if (
+                            len(live_df)
+                            ==
+                            original_count
+                        ):
+
+                            st.error(
+                                "삭제하려는 거래를 "
+                                "찾지 못했습니다."
+                            )
+
+                        else:
+
+                            # 컬럼 순서
+                            for col in REQUIRED_COLUMNS:
+
+                                if (
+                                    col
+                                    not in live_df.columns
+                                ):
+
+                                    live_df[
+                                        col
+                                    ] = ""
+
+                            live_df = live_df[
+                                REQUIRED_COLUMNS
+                            ]
+
+                            conn.update(
+                                worksheet=0,
+                                data=live_df
+                            )
+
+                            st.success(
+                                f"🗑️ {selected['Ticker']} "
+                                f"거래가 삭제되었습니다."
+                            )
+
+                            st.rerun()
+
+                except Exception as e:
+
+                    st.error(
+                        f"🚨 거래 삭제 중 오류: {e}"
+                    )
+
+
+# ============================================================
+# 데이터가 없는 경우
+# ============================================================
+
+else:
+
+    st.info(
+        "👈 사이드바에서 매매 기록을 입력하면 "
+        "대시보드가 활성화됩니다."
+                    )
