@@ -1,0 +1,29 @@
+name: Trend Lab checks
+on:
+  push:
+    paths: ['apps/trend_lab_flutter/**', 'apps/trend-lab-api/**', '.github/workflows/trend-lab.yml']
+  pull_request:
+    paths: ['apps/trend_lab_flutter/**', 'apps/trend-lab-api/**', '.github/workflows/trend-lab.yml']
+  workflow_dispatch:
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --test apps/trend-lab-api/test.mjs
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+        working-directory: apps/trend_lab_flutter
+      - run: flutter analyze && flutter test && flutter build web --release
+        working-directory: apps/trend_lab_flutter
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trend-lab-web
+          path: apps/trend_lab_flutter/build/web
