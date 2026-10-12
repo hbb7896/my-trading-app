@@ -5,15 +5,17 @@ import {mkdirSync,existsSync,readFileSync} from 'node:fs';
 import {resolve,extname,join,sep} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {analyze,validate,validDate} from './analysis.js';
+import {prepareImport} from './import.mjs';
 
 export function cleanTrade(t){
  if(!t||typeof t.ticker!=='string'||!t.ticker.trim()||t.ticker.length>100)throw Error('종목명을 입력하세요.');
- validate(t);
- if(!validDate(t.entry)||!validDate(t.exit))throw Error('거래 날짜를 확인하세요.');
+ if(typeof t.code!=='string'||(t.code&&!/^\d{6}$/.test(t.code)))throw Error('종목코드를 확인하세요.');
+ if(typeof t.entry!=='string'||!validDate(t.exit)||(t.entry&&(!validDate(t.entry)||t.entry>t.exit)))throw Error('거래 날짜를 확인하세요.');
  for(const k of ['buy','sell'])if(typeof t[k]!=='number'||!Number.isFinite(t[k])||t[k]<0||t[k]>1e15)throw Error('금액을 확인하세요.');
  if(t.buy<=0)throw Error('매수금액은 0보다 커야 합니다.');
  if(typeof t.memo!=='string'||t.memo.length>10000)throw Error('메모는 10,000자까지 입력할 수 있습니다.');
- return {ticker:t.ticker.trim(),code:t.code,entry:t.entry,exit:t.exit,buy:t.buy,sell:t.sell,memo:t.memo,pnl:t.sell-t.buy,roi:(t.sell/t.buy-1)*100};
+ const extra={};for(const k of ['emotion','discipline','chart_link']){if(t[k]!=null&&(typeof t[k]!=='string'||t[k].length>2048))throw Error('복기 정보를 확인하세요.');extra[k]=t[k]||'';}if(t.tags!=null&&(!Array.isArray(t.tags)||t.tags.length>30||t.tags.some(v=>typeof v!=='string'||v.length>100)))throw Error('태그를 확인하세요.');
+ return {...extra,tags:t.tags||[],ticker:t.ticker.trim(),code:t.code,entry:t.entry,exit:t.exit,buy:t.buy,sell:t.sell,memo:t.memo,pnl:t.sell-t.buy,roi:(t.sell/t.buy-1)*100};
 }
 export function createApp({dbPath=':memory:',token,webDir,origins=[]}={}){
  if(!token||token.length<24)throw Error('APP_TOKEN을 24자 이상으로 설정하세요.');
@@ -33,7 +35,15 @@ export function createApp({dbPath=':memory:',token,webDir,origins=[]}={}){
  const provided=Buffer.from(req.headers.authorization||''),expected=Buffer.from('Bearer '+token);
  if(provided.length!==expected.length||!timingSafeEqual(provided,expected))return send({error:'연결 키를 확인하세요.'},401);
  try{
- const body=async()=>{let data='',size=0;for await(const part of req){size+=part.length;if(size>65536)throw Error('요청이 너무 큽니다.');data+=part;}return JSON.parse(data);};
+ const body=async(limit=65536)=>{const chunks=[];let size=0;for await(const part of req){size+=part.length;if(size>limit)throw Error('요청이 너무 큽니다.');chunks.push(part);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));};
+ if(url.pathname==='/api/import/preview'&&req.method==='POST'){
+ const {csv}=await body(3_000_000);const rows=prepareImport(csv);for(const row of rows){if(!row.issues.length){try{row.trade=cleanTrade(row.trade);}catch(e){row.issues.push(e.message);}}row.duplicate=!!db.prepare('SELECT id FROM trades WHERE id=?').get(row.sourceId);}
+ return send({rows,total:rows.length,valid:rows.filter(r=>!r.issues.length&&!r.duplicate).length,duplicates:rows.filter(r=>r.duplicate).length});
+ }
+ if(url.pathname==='/api/import/commit'&&req.method==='POST'){
+ const {csv}=await body(3_000_000);const rows=prepareImport(csv);if(rows.some(r=>r.issues.length))return send({error:'입력 오류를 수정한 뒤 가져오세요.'},400);
+ const cleaned=rows.map(r=>({...r,trade:cleanTrade(r.trade)}));let inserted=0;db.exec('BEGIN IMMEDIATE');try{for(const row of cleaned){const r=db.prepare('INSERT OR IGNORE INTO trades VALUES (?,?)').run(row.sourceId,JSON.stringify(row.trade));inserted+=Number(r.changes);}db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}return send({inserted,skipped:rows.length-inserted});
+ }
  if(url.pathname==='/api/trades'&&req.method==='GET')return send(list());
  if(url.pathname==='/api/trades'&&req.method==='POST'){const t=cleanTrade(await body()),id=randomUUID();db.prepare('INSERT INTO trades VALUES (?,?)').run(id,JSON.stringify(t));return send({id,...t},201);}
  const match=url.pathname.match(/^\/api\/trades\/([^/]+)$/);

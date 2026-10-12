@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
 import 'trade.dart';
+import 'import_dialog.dart';
 
 const mint = Color(0xff75e3bf),
     background = Color(0xff0b1220),
@@ -110,8 +111,9 @@ class _JournalScreenState extends State<JournalScreen>
       });
       if (changed && replacement != null) analyze(replacement);
     } catch (e) {
-      if (mounted && api == client)
+      if (mounted && api == client) {
         setState(() => error = e.toString().replaceFirst('Exception: ', ''));
+      }
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -203,10 +205,31 @@ class _JournalScreenState extends State<JournalScreen>
   }
 
   void notify(Object e) {
-    if (mounted)
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
       );
+    }
+  }
+
+  Future<void> importRecords() async {
+    final client = api;
+    if (client == null) {
+      await settings();
+      return;
+    }
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ImportDialog(api: client),
+    );
+    if (result != null) {
+      await refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(result)));
+      }
+    }
   }
 
   Future<void> edit([Trade? t]) async {
@@ -256,6 +279,16 @@ class _JournalScreenState extends State<JournalScreen>
   }
 
   Future<void> analyze(Trade t) async {
+    if (t.code.isEmpty || t.entry.isEmpty) {
+      setState(() {
+        selected = t;
+        report = null;
+        analyzing = false;
+        reviewSequence++;
+        reviewError = '차트 복기에 필요한 종목코드와 진입일을 거래 수정에서 입력하세요.';
+      });
+      return;
+    }
     final seq = ++reviewSequence;
     setState(() {
       selected = t;
@@ -267,10 +300,11 @@ class _JournalScreenState extends State<JournalScreen>
       final data = await api!.review(t);
       if (mounted && seq == reviewSequence) setState(() => report = data);
     } catch (e) {
-      if (mounted && seq == reviewSequence)
+      if (mounted && seq == reviewSequence) {
         setState(
           () => reviewError = e.toString().replaceFirst('Exception: ', ''),
         );
+      }
     } finally {
       if (mounted && seq == reviewSequence) setState(() => analyzing = false);
     }
@@ -412,13 +446,18 @@ class _JournalScreenState extends State<JournalScreen>
         ),
         actions: [
           IconButton(
+            tooltip: '기존 기록 가져오기',
+            onPressed: loading ? null : importRecords,
+            icon: const Icon(Icons.upload_file),
+          ),
+          IconButton(
             tooltip: '거래 새로고침',
             onPressed: loading ? null : refresh,
             icon: const Icon(Icons.sync),
           ),
           IconButton(
             tooltip: '서버 연결',
-            onPressed: settings,
+            onPressed: loading ? null : settings,
             icon: const Icon(Icons.settings_outlined),
           ),
           const SizedBox(width: 12),
@@ -608,8 +647,8 @@ class _TradeEditorState extends State<TradeEditor> {
                     decoration: InputDecoration(
                       labelText: [
                         '종목명',
-                        '6자리 종목코드',
-                        '진입일 (YYYY-MM-DD)',
+                        '6자리 종목코드 (차트 복기 시 필요)',
+                        '진입일 (선택 · YYYY-MM-DD)',
                         '청산일 (YYYY-MM-DD)',
                         '총 매수금액 (원)',
                         '총 매도금액 (원)',
@@ -618,22 +657,29 @@ class _TradeEditorState extends State<TradeEditor> {
                     ),
                     validator: (v) {
                       final s = v?.trim() ?? '';
-                      if (i == 0 && (s.isEmpty || s.length > 100))
+                      if (i == 0 && (s.isEmpty || s.length > 100)) {
                         return '종목명을 입력하세요.';
-                      if (i == 1 && !RegExp(r'^\d{6}$').hasMatch(s))
+                      }
+                      if (i == 1 &&
+                          s.isNotEmpty &&
+                          !RegExp(r'^\d{6}$').hasMatch(s)) {
                         return '6자리 종목코드를 입력하세요.';
-                      if ((i == 2 || i == 3) && !date(s))
+                      }
+                      if ((i == 2 && s.isNotEmpty || i == 3) && !date(s)) {
                         return '올바른 날짜를 입력하세요.';
-                      if (i == 3 && s.compareTo(c[2].text.trim()) < 0)
+                      }
+                      if (i == 3 && s.compareTo(c[2].text.trim()) < 0) {
                         return '청산일은 진입일 이후여야 합니다.';
+                      }
                       if (i == 4 || i == 5) {
                         final n = double.tryParse(s);
                         if (n == null ||
                             !n.isFinite ||
                             n < 0 ||
                             n > 1e15 ||
-                            (i == 4 && n == 0))
+                            (i == 4 && n == 0)) {
                           return '올바른 금액을 입력하세요.';
+                        }
                       }
                       return null;
                     },
@@ -651,7 +697,7 @@ class _TradeEditorState extends State<TradeEditor> {
       ),
       FilledButton(
         onPressed: () {
-          if (form.currentState!.validate())
+          if (form.currentState!.validate()) {
             Navigator.pop(
               context,
               Trade(
@@ -663,8 +709,10 @@ class _TradeEditorState extends State<TradeEditor> {
                 buy: double.parse(c[4].text),
                 sell: double.parse(c[5].text),
                 memo: c[6].text,
+                extra: widget.trade?.extra ?? const {},
               ),
             );
+          }
         },
         child: const Text('저장'),
       ),

@@ -23,8 +23,9 @@ class TradingApi {
         await request.send().timeout(const Duration(seconds: 25)),
       );
       final data = jsonDecode(response.body);
-      if (response.statusCode >= 400)
+      if (response.statusCode >= 400) {
         throw Exception(data['error'] ?? '서버 요청 실패');
+      }
       return data;
     } on FormatException {
       throw Exception('API 서버 주소를 확인하세요.');

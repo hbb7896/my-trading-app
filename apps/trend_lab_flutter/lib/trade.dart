@@ -1,6 +1,7 @@
 class Trade {
   final String id, ticker, code, entry, exit, memo;
   final double buy, sell;
+  final Map<String, dynamic> extra;
   const Trade({
     this.id = '',
     required this.ticker,
@@ -10,6 +11,7 @@ class Trade {
     required this.buy,
     required this.sell,
     this.memo = '',
+    this.extra = const {},
   });
   double get pnl => sell - buy;
   double get roi => buy > 0 ? pnl / buy * 100 : 0;
@@ -22,8 +24,13 @@ class Trade {
     buy: (j['buy'] as num).toDouble(),
     sell: (j['sell'] as num).toDouble(),
     memo: j['memo'] as String? ?? '',
+    extra: {
+      for (final k in ['tags', 'emotion', 'discipline', 'chart_link'])
+        if (j.containsKey(k)) k: j[k],
+    },
   );
   Map<String, dynamic> toJson() => {
+    ...extra,
     'ticker': ticker,
     'code': code,
     'entry': entry,
