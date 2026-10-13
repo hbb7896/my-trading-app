@@ -1,29 +1,14 @@
-# 웹과 API를 함께 배포하기
 
-저장소 루트에서 Flutter 웹을 빌드한 다음 Docker 이미지를 만듭니다.
+# 개인용 온라인 앱 배포 제안
 
-```powershell
-cd apps/trend_lab_flutter
-flutter build web --release
-cd ../..
-docker build -f deploy/trend-lab/Dockerfile -t trend-lab .
-docker run --env APP_TOKEN --publish 8787:8787 --mount type=volume,source=trend-lab-data,target=/data trend-lab
-```
+실거래의 주 저장소는 Supabase PostgreSQL입니다. 웹/API 서버에 SQLite 영구 디스크를 붙이는 이전 제안은 더 이상 권장 운영 경로가 아닙니다. 기존 로컬 DB 파일은 보존하며 자동 이전하지 않습니다.
 
-`APP_TOKEN`은 실행 전 환경변수에 설정합니다. Docker 이미지에는 넣지 않습니다. `/data`는 영구 디스크에 연결하며 `trades.sqlite`와 WAL 파일을 함께 보존합니다. 운영 서버는 HTTPS 역방향 프록시 또는 호스팅 제공자의 TLS를 사용해야 합니다.
+`render.yaml`은 무료 웹 서버 하나를 제안합니다. `DB_MODE=supabase`와 프로젝트 URL/공개 키를 입력해야 실행되며, 운영 연결 키 방식으로 자동 전환하지 않습니다. 무료 서버는 비활성 상태에서 내려갔다가 첫 접속 시 기동 대기가 있을 수 있습니다. 운영 요구에 맞춘 유료 전환은 별도 확인 후 진행합니다.
 
-한 서버가 웹과 API를 모두 제공하므로 앱의 연결 화면에는 해당 HTTPS 주소를 입력하면 됩니다. 웹 코드만 GitHub Pages에 올리면 거래기록 서버는 별도로 필요합니다. 현재 공개 서버와 도메인은 선택되지 않았습니다.
+`Dockerfile.render`는 공식 Flutter SDK와 검증된 SHA-256을 사용해 소스에서 웹을 빌드하고 API와 함께 실행합니다. Docker 빌드 문맥은 필요한 소스만 포함하고 기존 DB·CSV·비밀 파일을 포함하지 않습니다.
 
-## Render 배포 준비
+순서: Supabase 계정 연결 → DB 접근 규칙 적용 → 본인 계정 활성화·신규 가입 차단 → 실제 권한 시험 → 웹 호스팅 연결 → 데이터 이전·대조 → 폰에서 사용 시험.
 
-루트의 `render.yaml`은 싱가포르의 유료 0.5 CPU / 512MB 서버와 1GB 영구 디스크 한 개를 선언합니다. `Dockerfile.render`는 GitHub 소스에서 Flutter 웹을 빌드하고 API와 함께 제공합니다. 거래 DB는 `/data`에 보관하고 연결 키는 Render가 비밀 환경변수로 생성합니다. 코드에는 키가 포함되지 않습니다.
+서버의 `SUPABASE_PUBLISHABLE_KEY`는 공개용 키이며 DB 권한을 대신하지 않습니다. 실제 접근은 사용자 세션과 DB의 RLS로 제한됩니다. 관리자 키와 비밀번호는 GitHub에 저장하지 않습니다.
 
-1. Render 계정을 만들고 GitHub 저장소 접근을 연결합니다.
-2. Blueprint에서 `hbb7896/my-trading-app`의 `feat/trend-lab-flutter` 브랜치와 `render.yaml`을 선택합니다.
-3. 서버·디스크의 요금을 확인하고 승인한 뒤 생성합니다. 계정 연결만으로 생성하지 않습니다.
-4. 배포 성공 후 실제 `onrender.com` 주소를 확인합니다. 새 웹 앱은 현재 웹 주소를 API 기본 주소로 사용합니다. 안드로이드에서는 같은 HTTPS 주소를 입력합니다.
-5. Render의 서버 환경설정에서 개인 연결 키를 확인해 앱 연결 화면에 직접 입력합니다. GitHub, 화면 캡처, 대화 메시지에 키를 넣지 않습니다.
-
-현재 Blueprint는 배포 제안 파일이며 서비스 생성이나 청구가 시작된 상태가 아닙니다. 서버 기본 요금에 1GB 디스크 비용이 추가됩니다. 사용량 초과와 세금은 별도이며 생성 직전 대시보드의 실제 요금을 다시 확인해야 합니다.
-
-재배포는 GitHub 검증이 통과한 변경에 대해 실행하도록 설정했습니다. 영구 디스크로 인해 서비스 교체 시 잠깐 중단될 수 있습니다. 실제 거래 이전 전에는 SQLite DB 백업 절차도 운영 환경에서 확인합니다.
+웹은 같은 HTTPS 서버를 API로 사용합니다. 안드로이드는 동일한 주소로 빌드하거나 처음 실행 시 서버 주소를 지정합니다. 현재 실제 서비스는 생성하지 않았습니다.

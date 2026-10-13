@@ -10,7 +10,7 @@ void main() {
       for (final size in [const Size(390, 844), const Size(1400, 1000)]) {
         tester.view.physicalSize = size;
         tester.view.devicePixelRatio = 1;
-        await tester.pumpWidget(const TrendLabApp());
+        await tester.pumpWidget(const MaterialApp(home: JournalScreen()));
         await tester.pump();
         expect(find.text('서버 연결하기'), findsOneWidget);
         expect(tester.takeException(), isNull);

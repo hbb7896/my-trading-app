@@ -6,7 +6,8 @@ import 'trade.dart';
 
 class TradingApi {
   final String baseUrl, token;
-  TradingApi(this.baseUrl, this.token);
+  final String Function()? tokenProvider;
+  TradingApi(this.baseUrl, this.token, {this.tokenProvider});
   Future<dynamic> request(
     String path, {
     String method = 'GET',
@@ -14,7 +15,7 @@ class TradingApi {
   }) async {
     final request = http.Request(method, Uri.parse('$baseUrl$path'))
       ..headers.addAll({
-        'Authorization': 'Bearer $token',
+        'Authorization': 'Bearer ${tokenProvider?.call() ?? token}',
         'Content-Type': 'application/json',
       });
     if (body != null) request.body = jsonEncode(body);

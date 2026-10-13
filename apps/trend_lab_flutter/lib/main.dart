@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'trade.dart';
 import 'import_dialog.dart';
+import 'auth_gate.dart';
 
 const mint = Color(0xff75e3bf),
     background = Color(0xff0b1220),
@@ -39,12 +40,18 @@ class TrendLabApp extends StatelessWidget {
       ),
       cardTheme: const CardThemeData(color: panel, elevation: 0),
     ),
-    home: const JournalScreen(),
+    home: AuthGate(
+      child: (api) => JournalScreen(
+        key: ValueKey(api?.baseUrl ?? 'local'),
+        initialApi: api,
+      ),
+    ),
   );
 }
 
 class JournalScreen extends StatefulWidget {
-  const JournalScreen({super.key});
+  final TradingApi? initialApi;
+  const JournalScreen({super.key, this.initialApi});
   @override
   State<JournalScreen> createState() => _JournalScreenState();
 }
@@ -65,6 +72,8 @@ class _JournalScreenState extends State<JournalScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    api = widget.initialApi;
+    if (api != null) Future.microtask(refresh);
     timer = Timer.periodic(const Duration(seconds: 30), (_) => refresh());
   }
 
@@ -121,6 +130,12 @@ class _JournalScreenState extends State<JournalScreen>
   }
 
   Future<void> settings() async {
+    if (widget.initialApi != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('본인 로그인으로 온라인 저장소에 연결되어 있습니다.')),
+      );
+      return;
+    }
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     final url = TextEditingController(

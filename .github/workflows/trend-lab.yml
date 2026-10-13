@@ -1,11 +1,30 @@
 name: Trend Lab checks
 on:
   push:
-    paths: ['apps/trend_lab_flutter/**', 'apps/trend-lab-api/**', 'deploy/trend-lab/**', 'render.yaml', '.github/workflows/trend-lab.yml']
+    paths: ['apps/trend_lab_flutter/**', 'apps/trend-lab-api/**', 'deploy/trend-lab/**', 'supabase/**', 'render.yaml', '.github/workflows/trend-lab.yml']
   pull_request:
-    paths: ['apps/trend_lab_flutter/**', 'apps/trend-lab-api/**', 'deploy/trend-lab/**', 'render.yaml', '.github/workflows/trend-lab.yml']
+    paths: ['apps/trend_lab_flutter/**', 'apps/trend-lab-api/**', 'deploy/trend-lab/**', 'supabase/**', 'render.yaml', '.github/workflows/trend-lab.yml']
   workflow_dispatch:
 jobs:
+  database-owner-policy:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ci-test-password
+          POSTGRES_DB: trend_lab_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate owner-only database policies
+        env:
+          PGPASSWORD: ci-test-password
+        run: |
+          psql -h localhost -U postgres -d trend_lab_test -v ON_ERROR_STOP=1 -f supabase/tests/setup.sql
+          psql -h localhost -U postgres -d trend_lab_test -v ON_ERROR_STOP=1 -f supabase/migrations/202610130001_personal_trades.sql
+          psql -h localhost -U postgres -d trend_lab_test -v ON_ERROR_STOP=1 -f supabase/tests/owner-policy.sql
   hosting-container:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -15,7 +34,7 @@ jobs:
       - name: Verify hosted web and API
         shell: bash
         run: |
-          docker run -d --name trend-lab-test -p 10000:10000 -e APP_TOKEN=ci-container-test-only-123456789 trend-lab-hosting
+          docker run -d --name trend-lab-test -p 10000:10000 -e ALLOW_LOCAL_DEV=true -e APP_TOKEN=ci-container-test-only-123456789 trend-lab-hosting
           trap 'docker rm -f trend-lab-test' EXIT
           curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://localhost:10000/health
           curl --fail http://localhost:10000/ | grep 'Trend Lab'
@@ -27,7 +46,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - run: node --test apps/trend-lab-api/test.mjs apps/trend-lab-api/import-test.mjs
+      - run: node --test apps/trend-lab-api/test.mjs apps/trend-lab-api/import-test.mjs apps/trend-lab-api/supabase-test.mjs
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.2'
