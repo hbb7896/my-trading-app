@@ -1,0 +1,34 @@
+# Review the paid compute + 1GB disk before creating the Blueprint.
+services:
+  - type: web
+    name: trend-lab
+    runtime: docker
+    plan: 0.5c-512mb
+    region: singapore
+    repo: https://github.com/hbb7896/my-trading-app
+    branch: feat/trend-lab-flutter
+    dockerfilePath: ./deploy/trend-lab/Dockerfile.render
+    dockerContext: .
+    autoDeployTrigger: checksPass
+    healthCheckPath: /health
+    disk:
+      name: trend-lab-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: APP_TOKEN
+        generateValue: true
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: '10000'
+      - key: DATA_DIR
+        value: /data
+      - key: WEB_DIR
+        value: /app/web
+    buildFilter:
+      paths:
+        - apps/trend_lab_flutter/**
+        - apps/trend-lab-api/**
+        - deploy/trend-lab/**
+        - render.yaml

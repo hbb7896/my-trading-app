@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
@@ -126,7 +127,12 @@ class _JournalScreenState extends State<JournalScreen>
           text:
               api?.baseUrl ??
               prefs.getString('api_url') ??
-              'http://localhost:8787',
+              (kIsWeb
+                  ? Uri.base.origin
+                  : const String.fromEnvironment(
+                      'API_BASE_URL',
+                      defaultValue: 'http://10.0.2.2:8787',
+                    )),
         ),
         key = TextEditingController(text: api?.token ?? '');
     final form = GlobalKey<FormState>();

@@ -1,11 +1,25 @@
 name: Trend Lab checks
 on:
   push:
-    paths: ['apps/trend_lab_flutter/**', 'apps/trend-lab-api/**', '.github/workflows/trend-lab.yml']
+    paths: ['apps/trend_lab_flutter/**', 'apps/trend-lab-api/**', 'deploy/trend-lab/**', 'render.yaml', '.github/workflows/trend-lab.yml']
   pull_request:
-    paths: ['apps/trend_lab_flutter/**', 'apps/trend-lab-api/**', '.github/workflows/trend-lab.yml']
+    paths: ['apps/trend_lab_flutter/**', 'apps/trend-lab-api/**', 'deploy/trend-lab/**', 'render.yaml', '.github/workflows/trend-lab.yml']
   workflow_dispatch:
 jobs:
+  hosting-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f deploy/trend-lab/Dockerfile.render -t trend-lab-hosting .
+      - name: Verify hosted web and API
+        shell: bash
+        run: |
+          docker run -d --name trend-lab-test -p 10000:10000 -e APP_TOKEN=ci-container-test-only-123456789 trend-lab-hosting
+          trap 'docker rm -f trend-lab-test' EXIT
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://localhost:10000/health
+          curl --fail http://localhost:10000/ | grep 'Trend Lab'
+          curl --fail -H 'Authorization: Bearer ci-container-test-only-123456789' http://localhost:10000/api/trades | grep '\[\]'
   test-and-build:
     runs-on: ubuntu-latest
     steps:
