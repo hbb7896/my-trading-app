@@ -9,6 +9,7 @@ import 'api.dart';
 import 'trade.dart';
 import 'import_dialog.dart';
 import 'auth_gate.dart';
+import 'app_workspace.dart';
 
 const mint = Color(0xff75e3bf),
     background = Color(0xff0b1220),
@@ -41,9 +42,9 @@ class TrendLabApp extends StatelessWidget {
       cardTheme: const CardThemeData(color: panel, elevation: 0),
     ),
     home: AuthGate(
-      child: (api) => JournalScreen(
+      child: (api) => AppWorkspace(
         key: ValueKey(api?.baseUrl ?? 'local'),
-        initialApi: api,
+        api: api,
       ),
     ),
   );

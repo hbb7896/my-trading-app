@@ -200,7 +200,7 @@ class _AuthGateState extends State<AuthGate> {
                 const Icon(Icons.lock_outline, size: 48),
                 const SizedBox(height: 20),
                 const Text(
-                  '나만의 Trend Lab',
+                  '나만의 매매 저널',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                 ),
