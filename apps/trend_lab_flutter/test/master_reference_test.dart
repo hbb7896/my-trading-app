@@ -40,7 +40,9 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('삼성전자 매매일지'), findsOneWidget);
-    expect(find.text('차트를 첨부해보세요'), findsOneWidget);
+    expect(find.text('매매 차트'), findsNothing);
+    expect(find.text('차트 이미지 링크'), findsNothing);
+    expect(find.text('매매 복기'), findsOneWidget);
     expect(find.text('샘플 거래는 저장할 수 없습니다'), findsOneWidget);
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
