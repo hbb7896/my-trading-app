@@ -101,10 +101,10 @@ class MasterMetrics {
     compare(recent.rewardRisk, previous.rewardRisk, .25);
     compare(recent.averageLoss, previous.averageLoss, .5, inverse: true);
     return score >= 2
-        ? '개선 중'
+        ? '개선'
         : score <= -2
-        ? '주의 필요'
-        : '안정적';
+        ? '주의'
+        : '안정';
   }
 }
 
@@ -132,16 +132,22 @@ class TargetResult {
                (success / 100 - (1 - success / 100) / (win / loss)) * 100,
              )
            : null,
-       trades = target == 0
-           ? 0
-           : (win * success / 100 - loss * (1 - success / 100)) > 0
-           ? (target /
-                         ((win * success / 100 - loss * (1 - success / 100)) *
-                             position /
-                             100) -
-                     1e-10)
-                 .ceil()
-           : null;
+       trades = requiredTradeCount(
+         target,
+         position,
+         win * success / 100 - loss * (1 - success / 100),
+       );
+}
+
+int? requiredTradeCount(double target, double position, double expectancy) {
+  if (target == 0) return 0;
+  if (expectancy <= 0 || position <= 0) return null;
+  final count = target / (expectancy * position / 100);
+  if (!count.isFinite || count > 9007199254740991) return null;
+  return math.max(
+    1,
+    (count - 2.220446049250313e-16 * math.max(1, count.abs()) * 4).ceil(),
+  );
 }
 
 String masterCsv(List<Trade> trades) {

@@ -4,6 +4,8 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val isTradingMaster = (project.findProperty("target") as? String)?.contains("trading_master_main.dart") == true
+
 android {
     namespace = "com.trendlab.trend_lab"
     compileSdk = flutter.compileSdkVersion
@@ -16,7 +18,9 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.trendlab.trend_lab"
+        applicationId = if (isTradingMaster) "com.hbb7896.tradingmaster" else "com.trendlab.trend_lab"
+        manifestPlaceholders["appDisplayName"] = if (isTradingMaster) "Trading Master" else "Trend Lab"
+        manifestPlaceholders["appIconResource"] = if (isTradingMaster) "@drawable/master_launcher" else "@mipmap/ic_launcher"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

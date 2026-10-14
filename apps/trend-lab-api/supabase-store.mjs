@@ -18,6 +18,7 @@ export class SupabaseStore {
  async get(ctx,id){const rows=await this.request(this.scoped(ctx,id)+'&select=id,payload',ctx.token);return rows[0]?{id:rows[0].id,...rows[0].payload}:null;}
  async insert(ctx,id,trade){await this.request('/rest/v1/trades',ctx.token,{method:'POST',body:{id,owner_id:ctx.userId,payload:trade}});}
  async update(ctx,id,trade){await this.request(this.scoped(ctx,id),ctx.token,{method:'PATCH',body:{payload:trade}});}
+ async updateIfUnchanged(ctx,id,trade,original){const {id:oldId,...payload}=original;const rows=await this.request(this.scoped(ctx,id)+'&payload=eq.'+encodeURIComponent(JSON.stringify(payload)),ctx.token,{method:'PATCH',body:{payload:trade},prefer:'return=representation'});return rows.length===1;}
  async delete(ctx,id){await this.request(this.scoped(ctx,id),ctx.token,{method:'DELETE'});}
  async import(ctx,rows){return this.request('/rest/v1/rpc/import_trades',ctx.token,{method:'POST',body:{records:rows.map(r=>({id:r.sourceId,payload:r.trade}))}});}
 }

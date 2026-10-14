@@ -90,14 +90,19 @@ void main() {
         ),
       );
       await tester.pump();
-      for (final label in masterSections) {
-        await tester.ensureVisible(find.byType(DropdownButtonFormField<int>));
-        await tester.tap(find.byType(DropdownButtonFormField<int>));
+      for (int i = 0; i < masterSections.length; i++) {
+        if (size.width < 760) {
+          await tester.tap(find.byTooltip('메뉴 열기'));
+          await tester.pumpAndSettle();
+        }
+        await tester.ensureVisible(find.byKey(ValueKey('master-nav-$i')));
+        await tester.tap(find.byKey(ValueKey('master-nav-$i')));
         await tester.pumpAndSettle();
-        await tester.ensureVisible(find.text(label).last);
-        await tester.tap(find.text(label).last);
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull, reason: '$label at $size');
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: '${masterSections[i]} at $size',
+        );
       }
       await tester.pumpWidget(const SizedBox());
     }

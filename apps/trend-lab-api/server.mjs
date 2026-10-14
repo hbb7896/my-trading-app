@@ -7,6 +7,7 @@ import {pathToFileURL} from 'node:url';
 import {analyze,validate,validDate} from './analysis.js';
 import {prepareImport} from './import.mjs';
 import {SupabaseStore} from './supabase-store.mjs';
+import {workbookPreview} from './workbook.mjs';
 
 export function cleanTrade(t){
  if(!t||typeof t.ticker!=='string'||!t.ticker.trim()||t.ticker.length>100)throw Error('종목명을 입력하세요.');
@@ -30,17 +31,20 @@ export function createApp({dbPath=':memory:',token,webDir,origins=[],supabase}={
  if(url.pathname==='/health')return send({ok:true});
  if(url.pathname==='/api/config'&&req.method==='GET')return send(cloud?{mode:'supabase',url:cloud.url,publishableKey:cloud.key}:{mode:'local'});
  if(!url.pathname.startsWith('/api/')){
- if(webDir&&['GET','HEAD'].includes(req.method)){const base=resolve(webDir);let file;try{file=resolve(base,'.'+decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname));}catch{return send({error:'잘못된 경로입니다.'},400);}if((file===base||file.startsWith(base+sep))&&existsSync(file)){try{res.writeHead(200,{'Content-Type':({'.html':'text/html; charset=utf-8','.js':'application/javascript','.json':'application/json','.wasm':'application/wasm','.css':'text/css','.png':'image/png','.ttf':'font/ttf'})[extname(file)]||'application/octet-stream'});return res.end(req.method==='HEAD'?undefined:readFileSync(file));}catch{}}}
+ if(webDir&&['GET','HEAD'].includes(req.method)){const base=resolve(webDir);let file;try{file=resolve(base,'.'+decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname));}catch{return send({error:'잘못된 경로입니다.'},400);}if((file===base||file.startsWith(base+sep))&&existsSync(file)){try{res.writeHead(200,{'Content-Type':({'.html':'text/html; charset=utf-8','.js':'application/javascript','.json':'application/json','.wasm':'application/wasm','.css':'text/css','.png':'image/png','.svg':'image/svg+xml','.ttf':'font/ttf'})[extname(file)]||'application/octet-stream'});return res.end(req.method==='HEAD'?undefined:readFileSync(file));}catch{}}}
  return send({error:'경로를 찾을 수 없습니다.'},404);
  }
  if(origin&&!origins.includes(origin)&&origin!==`http://${req.headers.host}`&&origin!==`https://${req.headers.host}`)return send({error:'허용되지 않은 출처입니다.'},403);
- if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Methods':'GET,POST,PUT,DELETE,OPTIONS','Access-Control-Allow-Headers':'Authorization,Content-Type','Access-Control-Max-Age':'600'});return res.end();}
+ if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Methods':'GET,POST,PUT,PATCH,DELETE,OPTIONS','Access-Control-Allow-Headers':'Authorization,Content-Type','Access-Control-Max-Age':'600'});return res.end();}
  let identity;
  try{
  if(cloud)identity=await cloud.authenticate(req.headers.authorization);
  else{const provided=Buffer.from(req.headers.authorization||''),expected=Buffer.from('Bearer '+token);if(provided.length!==expected.length||!timingSafeEqual(provided,expected))return send({error:'연결 키를 확인하세요.'},401);}
  const get=async id=>cloud?cloud.get(identity,id):(()=>{const row=db.prepare('SELECT id,payload FROM trades WHERE id=?').get(id);return row?{id:row.id,...JSON.parse(row.payload)}:null;})();
  const body=async(limit=65536)=>{const chunks=[];let size=0;for await(const part of req){size+=part.length;if(size>limit)throw Error('요청이 너무 큽니다.');chunks.push(part);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));};
+ if(url.pathname==='/api/workbook/preview'&&req.method==='POST'){
+ const preview=workbookPreview(await body(8_000_000));const known=new Set((cloud?await cloud.list(identity):list()).map(t=>t.id));for(const row of preview.rows){if(!row.issues.length){try{row.trade=cleanTrade(row.trade);}catch(e){row.issues.push(e.message);}}row.duplicate=known.has(row.sourceId);}return send(preview);
+ }
  if(url.pathname==='/api/import/preview'&&req.method==='POST'){
  const {csv}=await body(3_000_000);const rows=prepareImport(csv);const knownIds=new Set((cloud?await cloud.list(identity):list()).map(t=>t.id));for(const row of rows){if(!row.issues.length){try{row.trade=cleanTrade(row.trade);}catch(e){row.issues.push(e.message);}}row.duplicate=knownIds.has(row.sourceId);}
  return send({rows,total:rows.length,valid:rows.filter(r=>!r.issues.length&&!r.duplicate).length,duplicates:rows.filter(r=>r.duplicate).length});
@@ -51,6 +55,16 @@ export function createApp({dbPath=':memory:',token,webDir,origins=[],supabase}={
  }
  if(url.pathname==='/api/trades'&&req.method==='GET')return send(cloud?await cloud.list(identity):list());
  if(url.pathname==='/api/trades'&&req.method==='POST'){const t=cleanTrade(await body()),id=randomUUID();if(cloud)await cloud.insert(identity,id,t);else db.prepare('INSERT INTO trades VALUES (?,?)').run(id,JSON.stringify(t));return send({id,...t},201);}
+ const journalMatch=url.pathname.match(/^\/api\/trades\/([^/]+)\/journal$/);
+ if(journalMatch&&req.method==='PATCH'){
+ const input=await body(),id=decodeURIComponent(journalMatch[1]),current=await get(id);if(!current)return send({error:'거래가 없습니다.'},404);
+ const fields=t=>({memo:t?.memo||'',tags:t?.tags||[],emotion:t?.emotion||'',discipline:t?.discipline||'',chart_link:t?.chart_link||''});
+ if(!input.original||JSON.stringify(fields(input.original))!==JSON.stringify(fields(current)))return send({error:'다른 화면에서 매매일지가 변경됐습니다. 최신 기록을 다시 연 뒤 저장하세요.'},409);
+ const next=cleanTrade({...current,...fields(input)}),{id:oldId,...payload}=current;
+ const updated=cloud?await cloud.updateIfUnchanged(identity,id,next,current):Number(db.prepare('UPDATE trades SET payload=? WHERE id=? AND payload=?').run(JSON.stringify(next),id,JSON.stringify(payload)).changes)===1;
+ if(!updated)return send({error:'다른 화면에서 거래가 변경됐습니다. 최신 기록을 다시 연 뒤 저장하세요.'},409);
+ return send({id,...next});
+ }
  const match=url.pathname.match(/^\/api\/trades\/([^/]+)$/);
  if(match&&['PUT','DELETE'].includes(req.method)){const id=decodeURIComponent(match[1]);if(!(await get(id)))return send({error:'거래가 없습니다.'},404);if(req.method==='DELETE'){if(cloud)await cloud.delete(identity,id);else db.prepare('DELETE FROM trades WHERE id=?').run(id);return send({ok:true});}const t=cleanTrade(await body());if(cloud)await cloud.update(identity,id,t);else db.prepare('UPDATE trades SET payload=? WHERE id=?').run(JSON.stringify(t),id);return send({id,...t});}
  if(url.pathname==='/api/review'&&req.method==='POST'){

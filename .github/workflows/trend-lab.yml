@@ -46,7 +46,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - run: node --test apps/trend-lab-api/test.mjs apps/trend-lab-api/import-test.mjs apps/trend-lab-api/supabase-test.mjs
+      - run: npm ci --omit=dev
+        working-directory: apps/trend-lab-api
+      - run: node --test apps/trend-lab-api/test.mjs apps/trend-lab-api/import-test.mjs apps/trend-lab-api/supabase-test.mjs apps/trend-lab-api/workbook-test.mjs
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.2'
@@ -60,6 +62,14 @@ jobs:
         with:
           name: trend-lab-web
           path: apps/trend_lab_flutter/build/web
+      - run: flutter build web --release --target lib/trading_master_main.dart --output build/trading-master-web
+        working-directory: apps/trend_lab_flutter
+      - run: node tool/prepare_master_web.mjs build/trading-master-web
+        working-directory: apps/trend_lab_flutter
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trading-master-web
+          path: apps/trend_lab_flutter/build/trading-master-web
   android-debug:
     runs-on: ubuntu-latest
     steps:
@@ -80,4 +90,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: trend-lab-android-debug
+          path: apps/trend_lab_flutter/build/app/outputs/flutter-apk/app-debug.apk
+      - run: flutter build apk --debug --target lib/trading_master_main.dart
+        working-directory: apps/trend_lab_flutter
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trading-master-android-debug
           path: apps/trend_lab_flutter/build/app/outputs/flutter-apk/app-debug.apk

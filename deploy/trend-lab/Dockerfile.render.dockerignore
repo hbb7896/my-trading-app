@@ -7,8 +7,15 @@
 !apps/trend_lab_flutter/lib/**
 !apps/trend_lab_flutter/web/
 !apps/trend_lab_flutter/web/**
+!apps/trend_lab_flutter/assets/
+!apps/trend_lab_flutter/assets/**
+!apps/trend_lab_flutter/tool/
+!apps/trend_lab_flutter/tool/prepare_master_web.mjs
 !apps/trend-lab-api/
 !apps/trend-lab-api/package.json
+!apps/trend-lab-api/package-lock.json
+!apps/trend-lab-api/workbook.mjs
+!apps/trend-lab-api/kiwoom-engine.mjs
 !apps/trend-lab-api/server.mjs
 !apps/trend-lab-api/analysis.js
 !apps/trend-lab-api/import.mjs
