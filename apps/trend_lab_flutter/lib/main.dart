@@ -94,16 +94,20 @@ class _JournalScreenState extends State<JournalScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     api = widget.initialApi;
+    api?.addListener(sharedRecordsChanged);
     if (api != null) Future.microtask(refresh);
     timer = Timer.periodic(const Duration(seconds: 30), (_) => refresh());
   }
 
   @override
   void dispose() {
+    api?.removeListener(sharedRecordsChanged);
     timer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
+
+  void sharedRecordsChanged() => refresh();
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {

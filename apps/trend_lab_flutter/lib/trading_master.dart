@@ -67,6 +67,7 @@ class _TradingMasterScreenState extends State<TradingMasterScreen>
   void initState() {
     super.initState();
     api = widget.api;
+    api?.addListener(sharedRecordsChanged);
     trades = widget.initialTrades;
     demo = trades.isEmpty;
     WidgetsBinding.instance.addObserver(this);
@@ -76,10 +77,13 @@ class _TradingMasterScreenState extends State<TradingMasterScreen>
 
   @override
   void dispose() {
+    api?.removeListener(sharedRecordsChanged);
     timer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
+
+  void sharedRecordsChanged() => refresh();
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {

@@ -1,10 +1,12 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:http/http.dart' as http;
 
 import 'trade.dart';
 
-class TradingApi {
+class TradingApi extends ChangeNotifier {
   final String baseUrl, token;
   final String Function()? tokenProvider;
   TradingApi(this.baseUrl, this.token, {this.tokenProvider});
@@ -26,6 +28,10 @@ class TradingApi {
       final data = jsonDecode(response.body);
       if (response.statusCode >= 400) {
         throw Exception(data['error'] ?? '서버 요청 실패');
+      }
+      if (method != 'GET' &&
+          (path.startsWith('/api/trades') || path.endsWith('/commit'))) {
+        notifyListeners();
       }
       return data;
     } on FormatException {

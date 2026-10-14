@@ -273,7 +273,10 @@ class _SitesReviewState extends State<SitesReview> {
             ],
           ),
           const SizedBox(height: 20),
-          const Text('기존 거래 기록', style: TextStyle(fontSize: 14)),
+          const Text(
+            '공유 거래 기록 · TradingMaster',
+            style: TextStyle(fontSize: 14),
+          ),
           const SizedBox(height: 7),
           DropdownButtonFormField<String>(
             key: ValueKey(current),
@@ -515,7 +518,10 @@ class _SitesReviewState extends State<SitesReview> {
                           value: 'sample',
                           child: Text('샘플 보기'),
                         ),
-                        const PopupMenuItem(value: 'new', child: Text('거래 기록')),
+                        const PopupMenuItem(
+                          value: 'new',
+                          child: Text('공유 거래 추가'),
+                        ),
                         const PopupMenuItem(
                           value: 'import',
                           child: Text('기존 기록 가져오기'),
