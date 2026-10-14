@@ -17,7 +17,10 @@ class _AppWorkspaceState extends State<AppWorkspace> {
   @override
   Widget build(BuildContext context) => Scaffold(
     body: selected == 0
-        ? JournalScreen(initialApi: widget.api)
+        ? JournalScreen(
+            initialApi: widget.api,
+            openMaster: () => setState(() => selected = 1),
+          )
         : TradingMasterScreen(api: widget.api),
     bottomNavigationBar: NavigationBar(
       selectedIndex: selected,

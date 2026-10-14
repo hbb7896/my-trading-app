@@ -67,6 +67,8 @@ flutter:
     - family: NotoSansKR
       fonts:
         - asset: assets/master-fonts/NotoSansKR.ttf
+  assets:
+    - assets/trend_lab_sample.json
 
   # To add assets to your application, add an assets section, like this:
   # assets:

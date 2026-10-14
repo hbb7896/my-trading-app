@@ -2,8 +2,76 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:trend_lab/main.dart';
 import 'package:trend_lab/trade.dart';
+import 'package:trend_lab/sites_review.dart';
 
 void main() {
+  testWidgets('Sites report and chart ranges fit phone and desktop', (
+    tester,
+  ) async {
+    final bars = List.generate(
+      300,
+      (i) => <String, dynamic>{
+        'date': DateTime(
+          2025,
+          1,
+          1,
+        ).add(Duration(days: i)).toIso8601String().substring(0, 10),
+        'close': 1000 + i,
+        'volume': 10000,
+        'ma20': 995 + i,
+        'ma50': 975 + i,
+        'ma150': 925 + i,
+        'ma200': 900 + i,
+      },
+    );
+    final report = <String, dynamic>{
+      'bars': bars,
+      'entryIndex': 250,
+      'exitIndex': 260,
+      'entry': bars[250],
+      'exit': bars[260],
+      'name': '테스트',
+      'source': '시험 시세',
+      'closeChange': 1.0,
+      'holding': 10,
+      'sessions': 11,
+      'passed': 1,
+      'known': 1,
+      'range': {'up': 2.0, 'down': -1.0},
+      'aligned': true,
+      'criteria': [
+        {'label': '주가가 150·200일선 위', 'ok': true},
+      ],
+      'future': [
+        {'days': 5, 'date': null, 'change': null},
+      ],
+      'observations': [
+        {'title': '복기 질문', 'text': '계획한 진입 기준을 확인하세요.'},
+      ],
+    };
+    for (final size in [const Size(390, 844), const Size(1400, 1000)]) {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: SitesReport(report: report, loading: false),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      await tester.ensureVisible(find.text('앞뒤 120일'));
+      await tester.tap(find.text('앞뒤 120일'));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    }
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+  });
   testWidgets(
     'mobile and desktop show connection state without layout overflow',
     (tester) async {

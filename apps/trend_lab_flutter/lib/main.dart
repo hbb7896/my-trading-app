@@ -10,10 +10,11 @@ import 'trade.dart';
 import 'import_dialog.dart';
 import 'auth_gate.dart';
 import 'app_workspace.dart';
+import 'sites_review.dart';
 
 const mint = Color(0xff75e3bf),
     background = Color(0xff0b1220),
-    panel = Color(0xff142033);
+    panel = Color(0xff121e30);
 void main() => runApp(const TrendLabApp());
 String money(num n) =>
     '${n.round().toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}원';
@@ -36,23 +37,42 @@ class TrendLabApp extends StatelessWidget {
       ),
       useMaterial3: true,
       inputDecorationTheme: const InputDecorationTheme(
-        border: OutlineInputBorder(),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(8)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(8)),
+          borderSide: BorderSide(color: Color(0xff34465f)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(8)),
+          borderSide: BorderSide(color: siteMint),
+        ),
+        fillColor: Color(0xff0d1726),
+        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 13),
         filled: true,
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: siteMint,
+          foregroundColor: const Color(0xff08251c),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       ),
       cardTheme: const CardThemeData(color: panel, elevation: 0),
     ),
     home: AuthGate(
-      child: (api) => AppWorkspace(
-        key: ValueKey(api?.baseUrl ?? 'local'),
-        api: api,
-      ),
+      child: (api) =>
+          AppWorkspace(key: ValueKey(api?.baseUrl ?? 'local'), api: api),
     ),
   );
 }
 
 class JournalScreen extends StatefulWidget {
   final TradingApi? initialApi;
-  const JournalScreen({super.key, this.initialApi});
+  final VoidCallback? openMaster;
+  const JournalScreen({super.key, this.initialApi, this.openMaster});
   @override
   State<JournalScreen> createState() => _JournalScreenState();
 }
@@ -100,7 +120,7 @@ class _JournalScreenState extends State<JournalScreen>
     try {
       final data = await client.trades();
       if (!mounted || api != client) return;
-      Trade? replacement;
+      Trade? replacement = selected?.id.isEmpty == true ? selected : null;
       for (final t in data) {
         if (t.id == selected?.id) replacement = t;
       }
@@ -333,244 +353,23 @@ class _JournalScreenState extends State<JournalScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final visible = trades
-            .where(
-              (t) => '${t.ticker} ${t.code} ${t.memo}'.toLowerCase().contains(
-                query.toLowerCase(),
-              ),
-            )
-            .toList(),
-        net = trades.fold<double>(0, (s, t) => s + t.pnl),
-        wins = trades.where((t) => t.pnl > 0).length;
-    final wide = MediaQuery.sizeOf(context).width >= 1000;
-    final journal = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                '거래 기록',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              ),
-            ),
-            Text('${visible.length}건', style: const TextStyle(color: mint)),
-          ],
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          onChanged: (v) => setState(() => query = v),
-          decoration: const InputDecoration(
-            prefixIcon: Icon(Icons.search),
-            hintText: '종목명 · 코드 · 메모 검색',
-          ),
-        ),
-        const SizedBox(height: 16),
-        if (visible.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 36),
-            child: Text(
-              api == null
-                  ? '공통 서버를 연결하면 거래기록이 표시됩니다.'
-                  : '거래가 없습니다. 첫 거래를 기록해보세요.',
-            ),
-          ),
-        ...visible.map(
-          (t) => Card(
-            child: InkWell(
-              onTap: () => analyze(t),
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            t.ticker,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          percent(t.roi),
-                          style: TextStyle(
-                            color: sign(t.pnl),
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        PopupMenuButton<String>(
-                          onSelected: (v) => v == 'edit' ? edit(t) : remove(t),
-                          itemBuilder: (_) => [
-                            const PopupMenuItem(
-                              value: 'edit',
-                              child: Text('거래 수정'),
-                            ),
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Text('거래 삭제'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    Text(
-                      '${t.entry} → ${t.exit}',
-                      style: const TextStyle(color: Colors.white60),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Text(
-                          t.code,
-                          style: const TextStyle(color: Colors.white38),
-                        ),
-                        const Spacer(),
-                        Text(
-                          money(t.pnl),
-                          style: TextStyle(color: sign(t.pnl)),
-                        ),
-                      ],
-                    ),
-                    if (t.memo.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Text(
-                          t.memo,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-    final review = ReviewPanel(
-      trade: selected,
-      report: report,
-      loading: analyzing,
-      error: reviewError,
-    );
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          '⌁  Trend Lab',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        actions: [
-          IconButton(
-            tooltip: '기존 기록 가져오기',
-            onPressed: loading ? null : importRecords,
-            icon: const Icon(Icons.upload_file),
-          ),
-          IconButton(
-            tooltip: '거래 새로고침',
-            onPressed: loading ? null : refresh,
-            icon: const Icon(Icons.sync),
-          ),
-          IconButton(
-            tooltip: '서버 연결',
-            onPressed: loading ? null : settings,
-            icon: const Icon(Icons.settings_outlined),
-          ),
-          const SizedBox(width: 12),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => edit(),
-        icon: const Icon(Icons.add),
-        label: const Text('거래 기록'),
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1400),
-          child: ListView(
-            padding: EdgeInsets.all(wide ? 32 : 20),
-            children: [
-              const Text(
-                'RECORD · REFLECT · REPEAT',
-                style: TextStyle(color: mint, letterSpacing: 2, fontSize: 12),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                '나의 거래를, 더 선명하게.',
-                style: TextStyle(fontSize: 30, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                api == null
-                    ? '웹과 안드로이드에서 이어지는 나의 매매일지'
-                    : '공통 서버 연결됨${synced == null ? '' : ' · ${synced!.hour}:${synced!.minute.toString().padLeft(2, '0')} 갱신'}',
-                style: const TextStyle(color: Colors.white60),
-              ),
-              if (api == null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 16),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: FilledButton.icon(
-                      onPressed: settings,
-                      icon: const Icon(Icons.link),
-                      label: const Text('서버 연결하기'),
-                    ),
-                  ),
-                ),
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 16),
-                  child: Text(
-                    error!,
-                    style: const TextStyle(color: Colors.orangeAccent),
-                  ),
-                ),
-              if (loading) const LinearProgressIndicator(),
-              const SizedBox(height: 24),
-              Wrap(
-                spacing: 14,
-                runSpacing: 14,
-                children: [
-                  Metric('총 손익', money(net), sign(net)),
-                  Metric('거래 수', '${trades.length}건', Colors.white),
-                  Metric(
-                    '승률',
-                    trades.isEmpty
-                        ? '—'
-                        : '${(wins / trades.length * 100).toStringAsFixed(1)}%',
-                    mint,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 32),
-              if (wide)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(flex: 4, child: journal),
-                    const SizedBox(width: 24),
-                    Expanded(flex: 6, child: review),
-                  ],
-                )
-              else ...[
-                journal,
-                const SizedBox(height: 24),
-                review,
-              ],
-              const SizedBox(height: 90),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => SitesReview(
+    trades: trades,
+    selected: selected,
+    report: report,
+    loading: loading,
+    analyzing: analyzing,
+    connected: api != null,
+    error: error,
+    reviewError: reviewError,
+    analyze: analyze,
+    remove: remove,
+    edit: edit,
+    refresh: refresh,
+    importRecords: importRecords,
+    settings: settings,
+    openMaster: widget.openMaster,
+  );
 }
 
 class Metric extends StatelessWidget {
@@ -890,30 +689,46 @@ class ReviewPanel extends StatelessWidget {
 
 class PricePainter extends CustomPainter {
   final Map<String, dynamic> report;
-  PricePainter(this.report);
+  final int window;
+  final Set<int> averages;
+  final int? hovered;
+  PricePainter(
+    this.report, {
+    this.window = 40,
+    this.averages = const {20, 50},
+    this.hovered,
+  });
   @override
   void paint(Canvas canvas, Size size) {
     final all = report['bars'] as List,
         e = report['entryIndex'] as int,
         z = report['exitIndex'] as int,
-        start = math.max(0, e - 40),
-        end = math.min(all.length - 1, z + 40),
+        start = math.max(0, e - window),
+        end = math.min(all.length - 1, z + window),
         bars = all.sublist(start, end + 1);
     final values = <double>[];
     for (final b in bars) {
       values.add((b['close'] as num).toDouble());
-      if (b['ma50'] != null) values.add((b['ma50'] as num).toDouble());
+      for (final n in averages) {
+        if (b['ma$n'] != null) {
+          values.add((b['ma$n'] as num).toDouble());
+        }
+      }
     }
     if (values.isEmpty) return;
     final lo = values.reduce(math.min),
         hi = values.reduce(math.max),
         range = math.max(hi - lo, 1),
         right = size.width - 65,
-        top = 15.0,
+        top = 28.0,
         bottom = size.height - 30;
     double x(int i) => i / math.max(bars.length - 1, 1) * right;
     double y(num v) =>
         bottom - ((v - lo) / range * .85 + .075) * (bottom - top);
+    canvas.drawRect(
+      Rect.fromLTRB(x(e - start), top, x(z - start), bottom),
+      Paint()..color = siteMint.withValues(alpha: .08),
+    );
     for (int i = 0; i < 4; i++) {
       final yy = top + i / 3 * (bottom - top);
       canvas.drawLine(
@@ -930,7 +745,7 @@ class PricePainter extends CustomPainter {
       )..layout();
       text.paint(canvas, Offset(right + 8, yy - 6));
     }
-    for (final key in ['close', 'ma50']) {
+    for (final key in ['close', for (final n in averages) 'ma$n']) {
       final path = Path();
       bool begun = false;
       for (int i = 0; i < bars.length; i++) {
@@ -949,7 +764,9 @@ class PricePainter extends CustomPainter {
       canvas.drawPath(
         path,
         Paint()
-          ..color = (key == 'close' ? mint : const Color(0xfff0c974))
+          ..color = (key == 'close'
+              ? siteMint
+              : averagesColors[int.parse(key.substring(2))]!)
           ..style = PaintingStyle.stroke
           ..strokeWidth = (key == 'close' ? 2 : 1.4),
       );
@@ -959,6 +776,36 @@ class PricePainter extends CustomPainter {
         Offset(x(index - start), top),
         Offset(x(index - start), bottom),
         Paint()..color = const Color(0xff70a9fa),
+      );
+      final label = TextPainter(
+        text: TextSpan(
+          text: index == e ? '진입' : '청산',
+          style: TextStyle(
+            color: index == e ? siteMint : const Color(0xff70a9fa),
+            fontSize: 11,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      label.paint(
+        canvas,
+        Offset(
+          (x(index - start) - 12).clamp(0, right - label.width).toDouble(),
+          5,
+        ),
+      );
+    }
+    if (hovered != null && hovered! >= start && hovered! <= end) {
+      final xx = x(hovered! - start);
+      canvas.drawLine(
+        Offset(xx, top),
+        Offset(xx, bottom),
+        Paint()..color = siteMuted,
+      );
+      canvas.drawCircle(
+        Offset(xx, y(all[hovered!]['close'] as num)),
+        4,
+        Paint()..color = siteMint,
       );
     }
     for (final i in [0, bars.length - 1]) {
@@ -978,5 +825,9 @@ class PricePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant PricePainter oldDelegate) =>
-      oldDelegate.report != report;
+      oldDelegate.report != report ||
+      oldDelegate.window != window ||
+      oldDelegate.hovered != hovered ||
+      oldDelegate.averages.length != averages.length ||
+      !oldDelegate.averages.containsAll(averages);
 }
