@@ -22,7 +22,7 @@ class MasterJournalPage extends StatefulWidget {
 }
 
 class _MasterJournalPageState extends State<MasterJournalPage> {
-  late final TextEditingController memo, chart, emotion, discipline;
+  late final TextEditingController memo, emotion, discipline;
   late List<String> tags;
   late String baseline;
   bool busy = false, saved = false;
@@ -30,7 +30,6 @@ class _MasterJournalPageState extends State<MasterJournalPage> {
   bool get sample => widget.trade.id.startsWith('DEMO_');
   String get signature => [
     memo.text,
-    chart.text,
     emotion.text,
     discipline.text,
     tags.join('\u0000'),
@@ -40,14 +39,13 @@ class _MasterJournalPageState extends State<MasterJournalPage> {
     super.initState();
     final t = widget.trade;
     memo = TextEditingController(text: t.memo);
-    chart = TextEditingController(text: t.extra['chart_link'] as String? ?? '');
     emotion = TextEditingController(text: t.extra['emotion'] as String? ?? '');
     discipline = TextEditingController(
       text: t.extra['discipline'] as String? ?? '',
     );
     tags = List<String>.from(t.extra['tags'] as List? ?? []);
     baseline = signature;
-    for (final c in [memo, chart, emotion, discipline]) {
+    for (final c in [memo, emotion, discipline]) {
       c.addListener(changed);
     }
   }
@@ -58,7 +56,7 @@ class _MasterJournalPageState extends State<MasterJournalPage> {
 
   @override
   void dispose() {
-    for (final c in [memo, chart, emotion, discipline]) {
+    for (final c in [memo, emotion, discipline]) {
       c.removeListener(changed);
       c.dispose();
     }
@@ -88,15 +86,6 @@ class _MasterJournalPageState extends State<MasterJournalPage> {
   }
 
   Future<void> save() async {
-    final uri = Uri.tryParse(chart.text.trim());
-    if (chart.text.trim().isNotEmpty &&
-        (uri == null ||
-            !['http', 'https'].contains(uri.scheme) ||
-            uri.host.isEmpty ||
-            uri.userInfo.isNotEmpty)) {
-      setState(() => error = '차트는 http 또는 https 이미지 주소를 입력해주세요.');
-      return;
-    }
     setState(() {
       busy = true;
       error = null;
@@ -117,7 +106,6 @@ class _MasterJournalPageState extends State<MasterJournalPage> {
           extra: {
             ...t.extra,
             'tags': tags,
-            'chart_link': chart.text.trim(),
             'emotion': emotion.text,
             'discipline': discipline.text,
           },
@@ -140,7 +128,7 @@ class _MasterJournalPageState extends State<MasterJournalPage> {
 
   @override
   Widget build(BuildContext context) {
-    final t = widget.trade, link = t.extra['chart_link'] as String? ?? '';
+    final t = widget.trade;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -205,161 +193,102 @@ class _MasterJournalPageState extends State<MasterJournalPage> {
             ]),
           ),
         ),
-        pair(
-          MasterPanel(
-            title: '매매 차트',
-            caption: '진입과 청산 지점을 확인하며 복기하세요.',
-            action: const Icon(Icons.image_outlined, color: masterMint),
-            child: link.isEmpty
-                ? SizedBox(
-                    height: 420,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.image_outlined,
-                          size: 42,
-                          color: masterMuted,
-                        ),
-                        const SizedBox(height: 18),
-                        const Text('차트를 첨부해보세요'),
-                        Padding(
-                          padding: const EdgeInsets.all(22),
-                          child: muted(
-                            '차트 이미지 링크를 입력하고 복기 내용을 저장하면 여기에 표시됩니다.',
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Image.network(
-                      link,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, e, s) => SizedBox(
-                        height: 360,
-                        child: Center(
-                          child: muted(
-                            '차트를 불러오지 못했습니다. 접근 가능한 이미지 주소인지 확인해주세요.',
-                          ),
-                        ),
+        MasterPanel(
+          title: '매매 복기',
+          caption: '잘한 점과 다음 거래에서 개선할 점을 기록하세요.',
+          action: const Icon(Icons.menu_book_outlined, color: masterMint),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 0, 22, 22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: memo,
+                  enabled: !sample && !busy,
+                  maxLines: 9,
+                  maxLength: 10000,
+                  decoration: const InputDecoration(
+                    labelText: '메모 및 상세 복기',
+                    hintText: '진입 근거, 청산 이유, 원칙을 지킨 부분과 개선할 점',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text('실수 태그'),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final tag in {...mistakeTags, ...tags})
+                      FilterChip(
+                        label: Text(tag, style: const TextStyle(fontSize: 12)),
+                        selected: tags.contains(tag),
+                        onSelected: sample || busy
+                            ? null
+                            : (v) => setState(() {
+                                saved = false;
+                                if (v) {
+                                  tags.add(tag);
+                                } else {
+                                  tags.remove(tag);
+                                }
+                              }),
                       ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: emotion,
+                  enabled: !sample && !busy,
+                  maxLength: 200,
+                  decoration: const InputDecoration(
+                    labelText: '심리 상태',
+                    hintText: '예: 차분함',
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: discipline,
+                  enabled: !sample && !busy,
+                  maxLength: 200,
+                  decoration: const InputDecoration(
+                    labelText: '규율 준수 여부',
+                    hintText: '예: 손절 원칙 준수',
+                  ),
+                ),
+                if (error != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Text(
+                      error!,
+                      style: const TextStyle(color: masterRed),
                     ),
                   ),
-          ),
-          MasterPanel(
-            title: '매매 복기',
-            caption: '잘한 점과 다음 거래에서 개선할 점을 기록하세요.',
-            action: const Icon(Icons.menu_book_outlined, color: masterMint),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(22, 0, 22, 22),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: memo,
-                    enabled: !sample && !busy,
-                    maxLines: 9,
-                    maxLength: 10000,
-                    decoration: const InputDecoration(
-                      labelText: '메모 및 상세 복기',
-                      hintText: '진입 근거, 청산 이유, 원칙을 지킨 부분과 개선할 점',
+                if (saved)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Text(
+                      '✓ 복기 내용을 저장했습니다.',
+                      style: TextStyle(color: masterMint),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: chart,
-                    enabled: !sample && !busy,
-                    maxLength: 2048,
-                    decoration: const InputDecoration(
-                      labelText: '차트 이미지 링크',
-                      hintText: 'https://…/chart.png',
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: sample || busy ? null : save,
+                    icon: const Icon(Icons.check, size: 17),
+                    label: Text(
+                      busy
+                          ? '저장 중…'
+                          : sample
+                          ? '샘플 거래는 저장할 수 없습니다'
+                          : '매매일지 저장',
                     ),
                   ),
-                  muted('이미지의 직접 링크를 붙여넣어주세요.', size: 12),
-                  const SizedBox(height: 16),
-                  const Text('실수 태그'),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final tag in {...mistakeTags, ...tags})
-                        FilterChip(
-                          label: Text(
-                            tag,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          selected: tags.contains(tag),
-                          onSelected: sample || busy
-                              ? null
-                              : (v) => setState(() {
-                                  saved = false;
-                                  if (v) {
-                                    tags.add(tag);
-                                  } else {
-                                    tags.remove(tag);
-                                  }
-                                }),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: emotion,
-                    enabled: !sample && !busy,
-                    maxLength: 200,
-                    decoration: const InputDecoration(
-                      labelText: '심리 상태',
-                      hintText: '예: 차분함',
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: discipline,
-                    enabled: !sample && !busy,
-                    maxLength: 200,
-                    decoration: const InputDecoration(
-                      labelText: '규율 준수 여부',
-                      hintText: '예: 손절 원칙 준수',
-                    ),
-                  ),
-                  if (error != null)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Text(
-                        error!,
-                        style: const TextStyle(color: masterRed),
-                      ),
-                    ),
-                  if (saved)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      child: Text(
-                        '✓ 복기 내용을 저장했습니다.',
-                        style: TextStyle(color: masterMint),
-                      ),
-                    ),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: sample || busy ? null : save,
-                      icon: const Icon(Icons.check, size: 17),
-                      label: Text(
-                        busy
-                            ? '저장 중…'
-                            : sample
-                            ? '샘플 거래는 저장할 수 없습니다'
-                            : '매매일지 저장',
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-          left: 1,
         ),
       ],
     );
@@ -434,7 +363,11 @@ class _MasterTradeFormState extends State<MasterTradeForm> {
       }
       if (i == 3 || i == 4) {
         final n = double.tryParse(v);
-        if (n == null || !n.isFinite || n < 0 || n > 1e15 || (i == 3 && n == 0)) {
+        if (n == null ||
+            !n.isFinite ||
+            n < 0 ||
+            n > 1e15 ||
+            (i == 3 && n == 0)) {
           return '올바른 금액을 입력하세요.';
         }
       }
