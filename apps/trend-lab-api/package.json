@@ -1,0 +1,1 @@
+{"name":"trend-lab-api","private":true,"type":"module","scripts":{"start":"node server.mjs","test":"node --test test.mjs import-test.mjs supabase-test.mjs workbook-test.mjs"},"engines":{"node":">=24"},"dependencies":{"xlsx":"https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"}}
