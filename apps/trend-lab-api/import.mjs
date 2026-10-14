@@ -25,7 +25,7 @@ export function prepareImport(text){
  const issues=[];if(!ticker||ticker.length>100)issues.push('종목명');if(!validDate(exit)||(entry&&(!validDate(entry)||entry>exit)))issues.push('날짜');if(!get(r,'Buy_Amount').trim()||!get(r,'Sell_Amount').trim()||!Number.isFinite(buy)||buy<=0||buy>1e15||!Number.isFinite(sell)||sell<0||sell>1e15)issues.push('금액');
  const code=get(r,'Stock_Code').trim()||get(r,'Code').trim()||codes[ticker.replace(/\s+/g,'').toLowerCase()]||(/^\d{6}$/.test(ticker)?ticker:'');if(code&&!/^\d{6}$/.test(code))issues.push('종목코드');
  const identity=get(r,'Trade_ID').trim();const fingerprint=JSON.stringify([ticker,entry,exit,buy,sell]);const ordinal=(occurrences.get(fingerprint)||0)+1;occurrences.set(fingerprint,ordinal);
- const sourceId='IMPORT_'+createHash('sha256').update(identity?'master:'+identity:'trade:'+fingerprint+':'+ordinal).digest('hex');
- return {row:index+2,sourceId,issues,trade:{ticker,code,entry,exit,buy,sell,memo:get(r,'Memo'),tags:get(r,'Mistake_Tags').split('|').map(v=>v.trim()).filter(Boolean),emotion:get(r,'Emotion'),discipline:get(r,'Discipline'),chart_link:get(r,'Chart_Link')}};
+ const sourceId=/^IMPORT_[a-f0-9]{64}$/.test(identity)?identity:'IMPORT_'+createHash('sha256').update(identity?'master:'+identity:'trade:'+fingerprint+':'+ordinal).digest('hex');
+ return {row:index+2,sourceId,sourceIdentity:identity,issues,trade:{ticker,code,entry,exit,buy,sell,memo:get(r,'Memo'),tags:get(r,'Mistake_Tags').split('|').map(v=>v.trim()).filter(Boolean),emotion:get(r,'Emotion'),discipline:get(r,'Discipline'),chart_link:get(r,'Chart_Link')}};
  });
 }

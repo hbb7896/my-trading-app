@@ -34,3 +34,11 @@ test('journal-only saves preserve trade amounts and reject stale review drafts',
  assert.equal((await fetch(url,{method:'PATCH',body})).status,401);
  }finally{await new Promise(r=>server.close(r));}
 });
+test('exporting existing native or imported trades and reimporting cannot duplicate records',async()=>{
+ const token='roundtrip-test-token-1234567890',server=createApp({token});await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port,headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+ const request=async(path,data)=>{const r=await fetch(base+path,{method:data?'POST':'GET',headers,body:data?JSON.stringify(data):undefined});assert.equal(r.ok,true);return r.json();};
+ try{await request('/api/trades',{ticker:'직접 기록',code:'',entry:'',exit:'2026-01-05',buy:100,sell:120,memo:'메모'});await request('/api/import/commit',{csv:'Trade_ID,Ticker,Exit_Date,Buy_Amount,Sell_Amount\noriginal-id,가져온 기록,2026-01-06,100,110'});
+ const trades=await request('/api/trades'),csv=['Trade_ID,Ticker,Exit_Date,Buy_Amount,Sell_Amount',...trades.map(t=>[t.id,t.ticker,t.exit,t.buy,t.sell].join(','))].join('\n');
+ assert.equal((await request('/api/import/preview',{csv})).duplicates,2);assert.deepEqual(await request('/api/import/commit',{csv}),{inserted:0,skipped:2});assert.equal((await request('/api/trades')).length,2);
+ }finally{await new Promise(r=>server.close(r));}
+});

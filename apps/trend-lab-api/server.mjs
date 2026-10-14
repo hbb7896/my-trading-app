@@ -43,15 +43,15 @@ export function createApp({dbPath=':memory:',token,webDir,origins=[],supabase}={
  const get=async id=>cloud?cloud.get(identity,id):(()=>{const row=db.prepare('SELECT id,payload FROM trades WHERE id=?').get(id);return row?{id:row.id,...JSON.parse(row.payload)}:null;})();
  const body=async(limit=65536)=>{const chunks=[];let size=0;for await(const part of req){size+=part.length;if(size>limit)throw Error('요청이 너무 큽니다.');chunks.push(part);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));};
  if(url.pathname==='/api/workbook/preview'&&req.method==='POST'){
- const preview=workbookPreview(await body(8_000_000));const known=new Set((cloud?await cloud.list(identity):list()).map(t=>t.id));for(const row of preview.rows){if(!row.issues.length){try{row.trade=cleanTrade(row.trade);}catch(e){row.issues.push(e.message);}}row.duplicate=known.has(row.sourceId);}return send(preview);
+ const preview=workbookPreview(await body(8_000_000));const known=new Set((cloud?await cloud.list(identity):list()).map(t=>t.id));for(const row of preview.rows){if(!row.issues.length){try{row.trade=cleanTrade(row.trade);}catch(e){row.issues.push(e.message);}}row.duplicate=known.has(row.sourceId)||known.has(row.sourceIdentity);}return send(preview);
  }
  if(url.pathname==='/api/import/preview'&&req.method==='POST'){
- const {csv}=await body(3_000_000);const rows=prepareImport(csv);const knownIds=new Set((cloud?await cloud.list(identity):list()).map(t=>t.id));for(const row of rows){if(!row.issues.length){try{row.trade=cleanTrade(row.trade);}catch(e){row.issues.push(e.message);}}row.duplicate=knownIds.has(row.sourceId);}
+ const {csv}=await body(3_000_000);const rows=prepareImport(csv);const knownIds=new Set((cloud?await cloud.list(identity):list()).map(t=>t.id));for(const row of rows){if(!row.issues.length){try{row.trade=cleanTrade(row.trade);}catch(e){row.issues.push(e.message);}}row.duplicate=knownIds.has(row.sourceId)||knownIds.has(row.sourceIdentity);}
  return send({rows,total:rows.length,valid:rows.filter(r=>!r.issues.length&&!r.duplicate).length,duplicates:rows.filter(r=>r.duplicate).length});
  }
  if(url.pathname==='/api/import/commit'&&req.method==='POST'){
  const {csv}=await body(3_000_000);const rows=prepareImport(csv);if(rows.some(r=>r.issues.length))return send({error:'입력 오류를 수정한 뒤 가져오세요.'},400);
- const cleaned=rows.map(r=>({...r,trade:cleanTrade(r.trade)}));if(cloud)return send(await cloud.import(identity,cleaned));let inserted=0;db.exec('BEGIN IMMEDIATE');try{for(const row of cleaned){const r=db.prepare('INSERT OR IGNORE INTO trades VALUES (?,?)').run(row.sourceId,JSON.stringify(row.trade));inserted+=Number(r.changes);}db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}return send({inserted,skipped:rows.length-inserted});
+ const knownIds=new Set((cloud?await cloud.list(identity):list()).map(t=>t.id));const cleaned=rows.map(r=>({...r,sourceId:knownIds.has(r.sourceIdentity)?r.sourceIdentity:r.sourceId,trade:cleanTrade(r.trade)}));if(cloud)return send(await cloud.import(identity,cleaned));let inserted=0;db.exec('BEGIN IMMEDIATE');try{for(const row of cleaned){const r=db.prepare('INSERT OR IGNORE INTO trades VALUES (?,?)').run(row.sourceId,JSON.stringify(row.trade));inserted+=Number(r.changes);}db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}return send({inserted,skipped:rows.length-inserted});
  }
  if(url.pathname==='/api/trades'&&req.method==='GET')return send(cloud?await cloud.list(identity):list());
  if(url.pathname==='/api/trades'&&req.method==='POST'){const t=cleanTrade(await body()),id=randomUUID();if(cloud)await cloud.insert(identity,id,t);else db.prepare('INSERT INTO trades VALUES (?,?)').run(id,JSON.stringify(t));return send({id,...t},201);}
