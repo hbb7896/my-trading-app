@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -115,21 +114,6 @@ class _SitesReviewState extends State<SitesReview> {
       if (widget.connected && widget.trades.isEmpty) {
         selectSample();
       }
-    } else {
-      loadSample(auto: widget.connected && widget.trades.isEmpty);
-    }
-  }
-
-  Future<void> loadSample({bool auto = false}) async {
-    final data = jsonDecode(
-      await rootBundle.loadString('assets/trend_lab_sample.json'),
-    ) as Map<String, dynamic>;
-    if (!mounted) {
-      return;
-    }
-    setState(() => sample = data);
-    if (auto) {
-      selectSample();
     }
   }
 
@@ -514,10 +498,11 @@ class _SitesReviewState extends State<SitesReview> {
                         }
                       },
                       itemBuilder: (_) => [
-                        const PopupMenuItem(
-                          value: 'sample',
-                          child: Text('샘플 보기'),
-                        ),
+                        if (sample != null)
+                          const PopupMenuItem(
+                            value: 'sample',
+                            child: Text('샘플 보기'),
+                          ),
                         const PopupMenuItem(
                           value: 'new',
                           child: Text('공유 거래 추가'),
