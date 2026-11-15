@@ -1,5 +1,10 @@
 export class AccessError extends Error { constructor(message,status=401){super(message);this.status=status;} }
 export class SupabaseStore {
+ async positions(ctx){const result=[];for(let offset=0;;offset+=1000){const rows=await this.request('/rest/v1/position_cycles?owner_id=eq.'+ctx.userId+'&select=payload&order=id&limit=1000&offset='+offset,ctx.token);result.push(...rows.map(r=>r.payload));if(rows.length<1000)return result;}}
+ async position(ctx,id){const rows=await this.request('/rest/v1/position_cycles?owner_id=eq.'+ctx.userId+'&id=eq.'+encodeURIComponent(id)+'&select=payload',ctx.token);return rows[0]?.payload??null;}
+ async riskRules(ctx){const rows=await this.request('/rest/v1/position_risk_settings?owner_id=eq.'+ctx.userId+'&select=payload',ctx.token);return rows[0]?.payload??null;}
+ async saveRiskRules(ctx,payload){return this.request('/rest/v1/position_risk_settings?on_conflict=owner_id',ctx.token,{method:'POST',body:{owner_id:ctx.userId,payload},prefer:'resolution=merge-duplicates'});}
+ async commitPosition(ctx,expected,next,trade){return this.request('/rest/v1/rpc/commit_position_cycle',ctx.token,{method:'POST',body:{expected_version:expected,next_cycle:next,closed_trade:trade}});}
  constructor({url,key,fetchImpl=fetch}){const parsed=new URL(url);if(parsed.protocol!=='https:'||parsed.username||parsed.password||parsed.search||parsed.hash)throw Error('Supabase HTTPS 주소를 확인하세요.');let valid=typeof key==='string'&&key.startsWith('sb_publishable_');if(typeof key==='string'&&key.startsWith('ey')){try{valid=JSON.parse(Buffer.from(key.split('.')[1],'base64url').toString()).role==='anon';}catch{valid=false;}}if(!valid)throw Error('Supabase 공개용 키를 사용하세요.');this.url=parsed.origin;this.key=key;this.fetch=fetchImpl;}
  async request(path,token,{method='GET',body,prefer}={}){
   const headers={apikey:this.key,Authorization:'Bearer '+token};if(body!==undefined)headers['Content-Type']='application/json';if(prefer)headers.Prefer=prefer;

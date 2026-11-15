@@ -25,6 +25,8 @@ jobs:
           psql -h localhost -U postgres -d trend_lab_test -v ON_ERROR_STOP=1 -f supabase/tests/setup.sql
           psql -h localhost -U postgres -d trend_lab_test -v ON_ERROR_STOP=1 -f supabase/migrations/202610130001_personal_trades.sql
           psql -h localhost -U postgres -d trend_lab_test -v ON_ERROR_STOP=1 -f supabase/tests/owner-policy.sql
+          psql -h localhost -U postgres -d trend_lab_test -v ON_ERROR_STOP=1 -f supabase/migrations/20261115225156_rce_positions.sql
+          psql -h localhost -U postgres -d trend_lab_test -v ON_ERROR_STOP=1 -f supabase/tests/position-risk.sql
   hosting-container:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -48,7 +50,7 @@ jobs:
           node-version: '24'
       - run: npm ci --omit=dev
         working-directory: apps/trend-lab-api
-      - run: node --test apps/trend-lab-api/test.mjs apps/trend-lab-api/import-test.mjs apps/trend-lab-api/supabase-test.mjs apps/trend-lab-api/workbook-test.mjs
+      - run: node --test apps/trend-lab-api/test.mjs apps/trend-lab-api/import-test.mjs apps/trend-lab-api/supabase-test.mjs apps/trend-lab-api/workbook-test.mjs apps/trend-lab-api/position-risk-test.mjs
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.2'

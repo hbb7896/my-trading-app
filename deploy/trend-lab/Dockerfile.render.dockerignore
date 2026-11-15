@@ -21,3 +21,5 @@
 !apps/trend-lab-api/import.mjs
 !apps/trend-lab-api/stock-codes.json
 !apps/trend-lab-api/supabase-store.mjs
+
+!apps/trend-lab-api/position-risk.mjs

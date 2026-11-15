@@ -8,6 +8,7 @@ import {analyze,validate,validDate} from './analysis.js';
 import {prepareImport} from './import.mjs';
 import {SupabaseStore} from './supabase-store.mjs';
 import {workbookPreview} from './workbook.mjs';
+import {defaultRiskRules,validateRules,applyPositionAction,cycleMetrics,simulatePosition,riskStatistics,closedTrade} from './position-risk.mjs';
 
 export function cleanTrade(t){
  if(!t||typeof t.ticker!=='string'||!t.ticker.trim()||t.ticker.length>100)throw Error('종목명을 입력하세요.');
@@ -23,6 +24,7 @@ export function createApp({dbPath=':memory:',token,webDir,origins=[],supabase}={
  if(!supabase&&(!token||token.length<24))throw Error('APP_TOKEN을 24자 이상으로 설정하세요.');
  const cloud=supabase?new SupabaseStore(supabase):null;
  const db=cloud?null:new DatabaseSync(dbPath);if(db)db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS trades(id TEXT PRIMARY KEY, payload TEXT NOT NULL)');
+ if(db)db.exec('CREATE TABLE IF NOT EXISTS position_cycles(id TEXT PRIMARY KEY,payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS position_risk_settings(id INTEGER PRIMARY KEY,payload TEXT NOT NULL)');
  const list=()=>db.prepare('SELECT id,payload FROM trades').all().map(r=>({id:r.id,...JSON.parse(r.payload)})).sort((a,b)=>b.exit.localeCompare(a.exit)||a.id.localeCompare(b.id));
  const server=createServer(async(req,res)=>{
  const url=new URL(req.url,'http://localhost');const origin=req.headers.origin;
@@ -42,6 +44,22 @@ export function createApp({dbPath=':memory:',token,webDir,origins=[],supabase}={
  else{const provided=Buffer.from(req.headers.authorization||''),expected=Buffer.from('Bearer '+token);if(provided.length!==expected.length||!timingSafeEqual(provided,expected))return send({error:'연결 키를 확인하세요.'},401);}
  const get=async id=>cloud?cloud.get(identity,id):(()=>{const row=db.prepare('SELECT id,payload FROM trades WHERE id=?').get(id);return row?{id:row.id,...JSON.parse(row.payload)}:null;})();
  const body=async(limit=65536)=>{const chunks=[];let size=0;for await(const part of req){size+=part.length;if(size>limit)throw Error('요청이 너무 큽니다.');chunks.push(part);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));};
+ const positions=async()=>cloud?cloud.positions(identity):db.prepare('SELECT payload FROM position_cycles ORDER BY id').all().map(r=>JSON.parse(r.payload));
+ const riskRules=async()=>validateRules((cloud?await cloud.riskRules(identity):JSON.parse(db.prepare('SELECT payload FROM position_risk_settings WHERE id=1').get()?.payload||'null'))||defaultRiskRules);
+ if(url.pathname==='/api/positions'&&req.method==='GET'){const cycles=await positions(),rules=await riskRules();return send({cycles:cycles.map(c=>cycleMetrics(c,rules)),rules,statistics:riskStatistics(cycles)});}
+ if(url.pathname==='/api/positions/rules'&&req.method==='PUT'){const rules=validateRules(await body());if(cloud)await cloud.saveRiskRules(identity,rules);else db.prepare('INSERT INTO position_risk_settings VALUES(1,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload').run(JSON.stringify(rules));return send(rules);}
+ const positionRoute=url.pathname.match(/^\/api\/positions\/([^/]+)\/(action|simulate)$/);
+ if(positionRoute&&req.method==='POST'){
+  const id=decodeURIComponent(positionRoute[1]);if(!/^[a-zA-Z0-9_-]{1,100}$/.test(id))throw Error('사이클 ID를 확인하세요.');
+  const input=await body(),current=cloud?await cloud.position(identity,id):JSON.parse(db.prepare('SELECT payload FROM position_cycles WHERE id=?').get(id)?.payload||'null'),rules=await riskRules();
+  if(positionRoute[2]==='simulate'){if(!current)throw Error('포지션이 없습니다.');return send(simulatePosition(current,input,rules));}
+  const next=applyPositionAction(current,input,id),projection=closedTrade(next);if(projection&&(projection.sell<0||projection.buy>1e15||projection.sell>1e15))throw Error('누적 거래 금액이 저장 한도를 초과합니다.');
+  if(next.version!==(current?.version??0)){
+   if(cloud){const committed=await cloud.commitPosition(identity,current?.version??0,next,projection);if(committed!==true)return send({error:'다른 화면에서 변경됐습니다. 새로고침하세요.'},409);}
+   else{db.exec('BEGIN IMMEDIATE');try{const existing=db.prepare('SELECT payload FROM position_cycles WHERE id=?').get(id);if((existing?JSON.parse(existing.payload).version:0)!==(current?.version??0))throw Object.assign(Error('동시에 변경됐습니다.'),{status:409});db.prepare('INSERT INTO position_cycles VALUES(?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload').run(id,JSON.stringify(next));if(projection)db.prepare('INSERT INTO trades VALUES(?,?)').run('RISK_'+id,JSON.stringify(projection));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}}
+  }
+  return send(cycleMetrics(next,rules));
+ }
  if(url.pathname==='/api/workbook/preview'&&req.method==='POST'){
  const preview=workbookPreview(await body(8_000_000));const known=new Set((cloud?await cloud.list(identity):list()).map(t=>t.id));for(const row of preview.rows){if(!row.issues.length){try{row.trade=cleanTrade(row.trade);}catch(e){row.issues.push(e.message);}}row.duplicate=known.has(row.sourceId)||known.has(row.sourceIdentity);}return send(preview);
  }
@@ -60,13 +78,14 @@ export function createApp({dbPath=':memory:',token,webDir,origins=[],supabase}={
  const input=await body(),id=decodeURIComponent(journalMatch[1]),current=await get(id);if(!current)return send({error:'거래가 없습니다.'},404);
  const fields=t=>({memo:t?.memo||'',tags:t?.tags||[],emotion:t?.emotion||'',discipline:t?.discipline||'',chart_link:t?.chart_link||''});
  if(!input.original||JSON.stringify(fields(input.original))!==JSON.stringify(fields(current)))return send({error:'다른 화면에서 매매일지가 변경됐습니다. 최신 기록을 다시 연 뒤 저장하세요.'},409);
- const next=cleanTrade({...current,...fields(input)}),{id:oldId,...payload}=current;
+ const next={...current,...cleanTrade({...current,...fields(input)})},{id:oldId,...payload}=current;
+ delete next.id;
  const updated=cloud?await cloud.updateIfUnchanged(identity,id,next,current):Number(db.prepare('UPDATE trades SET payload=? WHERE id=? AND payload=?').run(JSON.stringify(next),id,JSON.stringify(payload)).changes)===1;
  if(!updated)return send({error:'다른 화면에서 거래가 변경됐습니다. 최신 기록을 다시 연 뒤 저장하세요.'},409);
  return send({id,...next});
  }
  const match=url.pathname.match(/^\/api\/trades\/([^/]+)$/);
- if(match&&['PUT','DELETE'].includes(req.method)){const id=decodeURIComponent(match[1]);if(!(await get(id)))return send({error:'거래가 없습니다.'},404);if(req.method==='DELETE'){if(cloud)await cloud.delete(identity,id);else db.prepare('DELETE FROM trades WHERE id=?').run(id);return send({ok:true});}const t=cleanTrade(await body());if(cloud)await cloud.update(identity,id,t);else db.prepare('UPDATE trades SET payload=? WHERE id=?').run(JSON.stringify(t),id);return send({id,...t});}
+ if(match&&['PUT','DELETE'].includes(req.method)){const id=decodeURIComponent(match[1]);const current=await get(id);if(!current)return send({error:'거래가 없습니다.'},404);if(current.risk_cycle_id)return send({error:'포지션에서 연결된 체결 금액은 변경하거나 삭제할 수 없습니다. 복기 메모는 매매일지에서 수정하세요.'},409);if(req.method==='DELETE'){if(cloud)await cloud.delete(identity,id);else db.prepare('DELETE FROM trades WHERE id=?').run(id);return send({ok:true});}const t=cleanTrade(await body());if(cloud)await cloud.update(identity,id,t);else db.prepare('UPDATE trades SET payload=? WHERE id=?').run(JSON.stringify(t),id);return send({id,...t});}
  if(url.pathname==='/api/review'&&req.method==='POST'){
  const t=await body();validate(t);
  const upstream=await fetch(`https://fchart.stock.naver.com/sise.nhn?symbol=${t.code}&timeframe=day&count=750&requestType=0`,{signal:AbortSignal.timeout(15000)});

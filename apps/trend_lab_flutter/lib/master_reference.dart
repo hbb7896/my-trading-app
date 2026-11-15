@@ -129,7 +129,7 @@ class MasterCard extends StatelessWidget {
 
 Widget cardGrid(List<Widget> cards) => LayoutBuilder(
   builder: (context, c) {
-    final count = c.maxWidth < 660 ? 2 : cards.length;
+    final count = c.maxWidth < 660 ? 2 : math.min(4, cards.length);
     final width = (c.maxWidth - 16 * (count - 1)) / count;
     return Padding(
       padding: const EdgeInsets.only(bottom: 22),
@@ -166,7 +166,7 @@ class ReferenceMaster extends StatelessWidget {
   final ValueChanged<String> onSearch;
   final VoidCallback onNew, onImport, onExport, onRefresh, onSettings, onReal;
   final ValueChanged<Trade> onJournal, onEdit;
-  final Widget? journal;
+  final Widget? journal, positionView;
   const ReferenceMaster({
     super.key,
     required this.trades,
@@ -189,6 +189,7 @@ class ReferenceMaster extends StatelessWidget {
     required this.onJournal,
     required this.onEdit,
     this.journal,
+    this.positionView,
   });
   static const icons = [
     Icons.dashboard_outlined,
@@ -201,6 +202,7 @@ class ReferenceMaster extends StatelessWidget {
     Icons.bar_chart_outlined,
     Icons.menu_book_outlined,
     Icons.chat_bubble_outline,
+    Icons.shield_outlined,
   ];
   Widget toolbar(bool mobile) {
     final period = Container(
@@ -319,7 +321,7 @@ class ReferenceMaster extends StatelessWidget {
           const SizedBox(height: 38),
           muted('WORKSPACE', size: 11),
           const SizedBox(height: 12),
-          for (int i = 0; i < 10; i++) ...[
+          for (int i = 0; i < masterSections.length; i++) ...[
             if (i == 5)
               Padding(
                 padding: const EdgeInsets.only(top: 22, bottom: 12),
@@ -579,6 +581,10 @@ class ReferenceMaster extends StatelessWidget {
                                             ? '꾸준한 기록으로 성과를 확인하고, 나만의 매매 패턴을 발견하세요.'
                                             : section == 4
                                             ? '숫자에 담긴 나의 매매 성향과 변화의 흐름을 확인하세요.'
+                                            : section == 10
+                                            ? '최초 위험은 고정하고, 차수별 CR과 E로 수익 반납 위험을 확인하세요.'
+                                            : section == 6
+                                            ? '최초 위험이 확정된 청산 거래의 R 성과입니다.'
                                             : '매매 기록을 바탕으로 거래 성과를 살펴보세요.',
                                         size: mobile ? 12 : 14,
                                       ),
@@ -586,17 +592,18 @@ class ReferenceMaster extends StatelessWidget {
                                   ),
                                 ),
                                 const SizedBox(width: 12),
-                                FilledButton.icon(
-                                  onPressed: onNew,
-                                  icon: const Icon(Icons.add, size: 18),
-                                  label: const Text('거래 등록'),
-                                ),
+                                if (![6, 10].contains(section))
+                                  FilledButton.icon(
+                                    onPressed: onNew,
+                                    icon: const Icon(Icons.add, size: 18),
+                                    label: const Text('거래 등록'),
+                                  ),
                               ],
                             ),
                             const SizedBox(height: 27),
-                            toolbar(mobile),
+                            if (![6, 10].contains(section)) toolbar(mobile),
                             const SizedBox(height: 20),
-                            if (demo)
+                            if (demo && ![6, 10].contains(section))
                               Container(
                                 margin: const EdgeInsets.only(bottom: 20),
                                 padding: const EdgeInsets.all(12),
@@ -657,7 +664,10 @@ class ReferenceMaster extends StatelessWidget {
                               ),
                             if (loading && !demo)
                               const LinearProgressIndicator(),
-                            if (trades.isEmpty &&
+                            if ([6, 10].contains(section) &&
+                                positionView != null)
+                              positionView!
+                            else if (trades.isEmpty &&
                                 !loading &&
                                 ![8, 9].contains(section))
                               MasterPanel(
@@ -1490,51 +1500,13 @@ class _MasterAnalysisState extends State<MasterAnalysis> {
       ),
     ],
   );
-  Widget rView() {
-    final risk = m.losses.isEmpty ? 0 : m.grossLoss / m.losses.length;
-    double total = 0;
-    return risk == 0
-        ? MasterPanel(
-            title: 'R-배수 분석',
-            child: Padding(
-              padding: const EdgeInsets.all(22),
-              child: muted('평균 손실금으로 1R을 정의합니다. 손실 거래가 없어 R-배수를 계산할 수 없습니다.'),
-            ),
-          )
-        : Column(
-            children: [
-              cardGrid([
-                MasterCard(
-                  label: '나의 1R',
-                  value: masterWon(risk),
-                  caption: '선택 기간의 평균 손실금',
-                ),
-                MasterCard(
-                  label: '평균 R-배수',
-                  value: '${(m.net / m.n / risk).toStringAsFixed(2)}R',
-                ),
-                MasterCard(
-                  label: '최고 R-배수',
-                  value:
-                      '${(widget.trades.map((t) => t.pnl).reduce(math.max) / risk).toStringAsFixed(2)}R',
-                ),
-              ]),
-              MasterPanel(
-                title: '누적 R-배수',
-                caption: '거래 순서에 따른 누적 성과',
-                child: MasterChart(
-                  points: List.generate(
-                    m.n,
-                    (i) => ChartPoint(
-                      '${i + 1}번째',
-                      total += m.ordered[i].pnl / risk,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          );
-  }
+  Widget rView() => MasterPanel(
+    title: '최초 위험 기준 R 분석',
+    child: Padding(
+      padding: const EdgeInsets.all(22),
+      child: muted('기준 정보 부족 · 최초 매수가, 손절가, 수량이 있는 포지션 사이클만 R을 계산합니다.'),
+    ),
+  );
 
   Widget minervini() {
     final years =

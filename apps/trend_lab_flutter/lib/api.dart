@@ -30,7 +30,9 @@ class TradingApi extends ChangeNotifier {
         throw Exception(data['error'] ?? '서버 요청 실패');
       }
       if (method != 'GET' &&
-          (path.startsWith('/api/trades') || path.endsWith('/commit'))) {
+          (path.startsWith('/api/trades') ||
+              path.endsWith('/commit') ||
+              path.endsWith('/action'))) {
         notifyListeners();
       }
       return data;

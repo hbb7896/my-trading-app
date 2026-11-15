@@ -25,7 +25,15 @@ class Trade {
     sell: (j['sell'] as num).toDouble(),
     memo: j['memo'] as String? ?? '',
     extra: {
-      for (final k in ['tags', 'emotion', 'discipline', 'chart_link'])
+      for (final k in [
+        'tags',
+        'emotion',
+        'discipline',
+        'chart_link',
+        'risk_cycle_id',
+        'initial_r',
+        'final_r',
+      ])
         if (j.containsKey(k)) k: j[k],
     },
   );

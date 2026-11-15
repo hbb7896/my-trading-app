@@ -13,6 +13,7 @@ import 'master_metrics.dart';
 import 'master_import.dart';
 import 'master_reference.dart';
 import 'master_sample.dart';
+import 'position_risk.dart';
 
 const masterSections = [
   '대시보드',
@@ -25,6 +26,7 @@ const masterSections = [
   '손익 분포',
   '미너비니 지표',
   '미너비니 조언',
+  '포지션 R·CR·E',
 ];
 const mistakeTags = [
   '추격매수',
@@ -372,6 +374,12 @@ class _TradingMasterScreenState extends State<TradingMasterScreen>
 
   @override
   Widget build(BuildContext context) => ReferenceMaster(
+    positionView: PositionRiskWorkspace(
+      key: ValueKey(section),
+      api: api,
+      statisticsOnly: section == 6,
+      legacyCount: trades.where((t) => t.extra['risk_cycle_id'] == null).length,
+    ),
     trades: filtered,
     section: section,
     days: days,

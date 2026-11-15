@@ -1,0 +1,132 @@
+{
+  "cycles": [
+    {
+      "id": "ui-test",
+      "ticker": "계산 검증",
+      "code": "",
+      "version": 3,
+      "events": [
+        {
+          "id": "first",
+          "type": "buy",
+          "at": "2026-11-16T09:00:00+09:00",
+          "ticker": "계산 검증",
+          "price": "100000",
+          "quantity": "100",
+          "stop": "90000"
+        },
+        {
+          "id": "mark",
+          "type": "mark",
+          "at": "2026-11-16T10:00:00+09:00",
+          "price": "120000"
+        },
+        {
+          "id": "stop",
+          "type": "stop",
+          "at": "2026-11-16T10:01:00+09:00",
+          "lotId": "first",
+          "stop": "100000"
+        }
+      ],
+      "lots": [
+        {
+          "id": "first",
+          "at": "2026-11-16T09:00:00+09:00",
+          "price": 100000,
+          "initialQuantity": 100,
+          "remaining": 100,
+          "stop": 100000,
+          "history": [
+            {
+              "at": "2026-11-16T10:01:00+09:00",
+              "from": 90000,
+              "to": 100000
+            }
+          ],
+          "memo": "",
+          "realized": 0,
+          "unrealized": 2000000,
+          "cr": 0
+        }
+      ],
+      "closed": false,
+      "basisStatus": "확정",
+      "initialR": 1000000,
+      "initialQuantity": 100,
+      "quantity": 100,
+      "mark": 120000,
+      "e": 1,
+      "cr": 0,
+      "realized": 0,
+      "unrealized": 2000000,
+      "total": 2000000,
+      "realizedR": 0,
+      "unrealizedR": 2,
+      "totalR": 2,
+      "protected": 0,
+      "protectedR": 0,
+      "giveback": 2000000,
+      "givebackR": 2,
+      "givebackPercent": 100,
+      "peak": 2000000,
+      "pyramidPeak": null,
+      "peakGivebackPercent": 0,
+      "marketValue": 12000000,
+      "remainingCost": 10000000,
+      "totalInvested": 10000000,
+      "fees": 0,
+      "pyramiding": false,
+      "missingStops": false,
+      "warnings": [
+        "계획상 보호 수익 부족"
+      ],
+      "accountPercent": null,
+      "initialRiskPercent": null
+    }
+  ],
+  "rules": {
+    "maxE": "1.5",
+    "maxCR": "0.5",
+    "protectAtR": "2",
+    "minProtectedR": "1",
+    "initialRiskPercent": "0.5",
+    "accountValue": "",
+    "enabled": true
+  },
+  "statistics": {
+    "count": 0,
+    "totalR": null,
+    "averageWinR": null,
+    "averageLossR": null,
+    "averageR": null,
+    "winRate": null,
+    "lossRate": null,
+    "breakeven": 0,
+    "expectancy": null,
+    "missingBasis": 0,
+    "rows": [],
+    "pyramiding": {
+      "count": 0,
+      "totalR": null,
+      "averageWinR": null,
+      "averageLossR": null,
+      "averageR": null,
+      "winRate": null,
+      "lossRate": null,
+      "breakeven": 0,
+      "expectancy": null
+    },
+    "single": {
+      "count": 0,
+      "totalR": null,
+      "averageWinR": null,
+      "averageLossR": null,
+      "averageR": null,
+      "winRate": null,
+      "lossRate": null,
+      "breakeven": 0,
+      "expectancy": null
+    }
+  }
+}
