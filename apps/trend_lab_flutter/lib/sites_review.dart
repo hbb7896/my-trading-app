@@ -471,7 +471,6 @@ class _SitesReviewState extends State<SitesReview> {
                       note('나의 추세추종 복기', size: 14),
                     ],
                     const Spacer(),
-                    pill('PILOT 01'),
                     PopupMenuButton<String>(
                       tooltip: '기록 관리 및 샘플',
                       onSelected: (action) {
