@@ -1,0 +1,32 @@
+# Personal preview: online data lives in Supabase, not the web host filesystem.
+services:
+  - type: web
+    name: trend-lab
+    runtime: docker
+    plan: free
+    region: singapore
+    repo: https://github.com/hbb7896/my-trading-app
+    branch: feat/trend-lab-flutter
+    dockerfilePath: ./deploy/trend-lab/Dockerfile.render
+    dockerContext: .
+    autoDeployTrigger: checksPass
+    healthCheckPath: /health
+    envVars:
+      - key: DB_MODE
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: '10000'
+      - key: WEB_DIR
+        value: /app/web
+    buildFilter:
+      paths:
+        - apps/trend_lab_flutter/**
+        - apps/trend-lab-api/**
+        - deploy/trend-lab/**
+        - render.yaml

@@ -1,0 +1,11 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+import {resolve,join} from 'node:path';
+const directory=resolve(process.argv[2]||'build/trading-master-web');
+const index=join(directory,'index.html');
+let html=readFileSync(index,'utf8').replace(/<title>[^<]*<\/title>/,'<title>Trading Master · 나의 매매를 이해하다</title>').replace(/<meta name="description" content="[^"]*">/,'<meta name="description" content="나의 매매 기록과 행동을 돌아보는 개인 트레이딩 저널">').replace(/<meta name="apple-mobile-web-app-title" content="[^"]*">/,'<meta name="apple-mobile-web-app-title" content="Trading Master">');
+writeFileSync(index,html);
+const manifestPath=join(directory,'manifest.json');
+const manifest=JSON.parse(readFileSync(manifestPath,'utf8'));
+Object.assign(manifest,{name:'Trading Master',short_name:'Trading Master',description:'나의 매매 기록과 행동을 돌아보는 개인 트레이딩 저널',background_color:'#101623',theme_color:'#101623'});
+writeFileSync(manifestPath,JSON.stringify(manifest,null,2));
+console.log('Trading Master web metadata prepared.');
