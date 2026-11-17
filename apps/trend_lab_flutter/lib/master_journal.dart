@@ -11,12 +11,14 @@ class MasterJournalPage extends StatefulWidget {
   final Future<void> Function(Trade) onSave;
   final VoidCallback onBack;
   final ValueChanged<Trade> onEdit;
+  final VoidCallback? onPosition;
   const MasterJournalPage({
     super.key,
     required this.trade,
     required this.onSave,
     required this.onBack,
     required this.onEdit,
+    this.onPosition,
   });
   @override
   State<MasterJournalPage> createState() => _MasterJournalPageState();
@@ -161,6 +163,15 @@ class _MasterJournalPageState extends State<MasterJournalPage> {
           ],
         ),
         const SizedBox(height: 22),
+        if (widget.onPosition != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: OutlinedButton.icon(
+              onPressed: widget.onPosition,
+              icon: const Icon(Icons.history),
+              label: const Text('연결된 체결·손절 이력 보기'),
+            ),
+          ),
         MasterPanel(
           title: '${t.ticker} 매매일지',
           caption:
@@ -306,7 +317,17 @@ class _MasterJournalPageState extends State<MasterJournalPage> {
 class MasterTradeForm extends StatefulWidget {
   final Trade? trade;
   final Future<void> Function(Trade)? onDelete;
-  const MasterTradeForm({super.key, this.trade, this.onDelete});
+  final Future<void> Function(Trade)? onSave;
+  final Widget? registrationHeader;
+  final ValueChanged<bool>? onBusyChanged;
+  const MasterTradeForm({
+    super.key,
+    this.trade,
+    this.onDelete,
+    this.onSave,
+    this.registrationHeader,
+    this.onBusyChanged,
+  });
   @override
   State<MasterTradeForm> createState() => _MasterTradeFormState();
 }
@@ -315,6 +336,8 @@ class _MasterTradeFormState extends State<MasterTradeForm> {
   final form = GlobalKey<FormState>();
   late final List<TextEditingController> c;
   late List<String> tags;
+  bool busy = false;
+  String? error;
   @override
   void initState() {
     super.initState();
@@ -353,6 +376,7 @@ class _MasterTradeFormState extends State<MasterTradeForm> {
 
   Widget field(int i, String label) => TextFormField(
     controller: c[i],
+    enabled: !busy,
     maxLines: i == 5 ? 3 : 1,
     maxLength: i == 5 ? 10000 : null,
     keyboardType: i == 3 || i == 4
@@ -391,23 +415,25 @@ class _MasterTradeFormState extends State<MasterTradeForm> {
         sell = double.tryParse(c[4].text) ?? 0,
         pnl = sell - buy;
     return AlertDialog(
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'TRADE JOURNAL',
-            style: TextStyle(
-              color: masterMint,
-              fontSize: 11,
-              letterSpacing: 1.5,
-            ),
+      title:
+          widget.registrationHeader ??
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'TRADE JOURNAL',
+                style: TextStyle(
+                  color: masterMint,
+                  fontSize: 11,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(widget.trade == null ? '새 거래 등록' : '거래 수정'),
+              const SizedBox(height: 8),
+              muted('매매의 결과와 과정을 함께 기록하세요.'),
+            ],
           ),
-          const SizedBox(height: 8),
-          Text(widget.trade == null ? '새 거래 등록' : '거래 수정'),
-          const SizedBox(height: 8),
-          muted('매매의 결과와 과정을 함께 기록하세요.'),
-        ],
-      ),
       content: SizedBox(
         width: 570,
         child: SingleChildScrollView(
@@ -473,6 +499,8 @@ class _MasterTradeFormState extends State<MasterTradeForm> {
                   title: muted('종목코드 (차트 복기 시 선택 입력)', size: 12),
                   children: [field(6, '6자리 종목코드')],
                 ),
+                if (error != null)
+                  Text(error!, style: const TextStyle(color: masterRed)),
               ],
             ),
           ),
@@ -488,30 +516,53 @@ class _MasterTradeFormState extends State<MasterTradeForm> {
             child: const Text('삭제', style: TextStyle(color: masterRed)),
           ),
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: busy ? null : () => Navigator.pop(context),
           child: const Text('취소'),
         ),
         FilledButton.icon(
-          onPressed: () {
-            if (!form.currentState!.validate()) return;
-            final t = widget.trade;
-            Navigator.pop(
-              context,
-              Trade(
-                id: t?.id ?? '',
-                ticker: c[0].text.trim(),
-                code: c[6].text.trim(),
-                entry: c[1].text.trim(),
-                exit: c[2].text.trim(),
-                buy: double.parse(c[3].text),
-                sell: double.parse(c[4].text),
-                memo: c[5].text,
-                extra: {...t?.extra ?? {}, 'tags': tags},
-              ),
-            );
-          },
+          onPressed: busy
+              ? null
+              : () async {
+                  if (!form.currentState!.validate()) return;
+                  final t = widget.trade;
+                  final value = Trade(
+                    id: t?.id ?? '',
+                    ticker: c[0].text.trim(),
+                    code: c[6].text.trim(),
+                    entry: c[1].text.trim(),
+                    exit: c[2].text.trim(),
+                    buy: double.parse(c[3].text),
+                    sell: double.parse(c[4].text),
+                    memo: c[5].text,
+                    extra: {...t?.extra ?? {}, 'tags': tags},
+                  );
+                  if (widget.onSave == null) {
+                    Navigator.pop(context, value);
+                    return;
+                  }
+                  widget.onBusyChanged?.call(true);
+                  setState(() {
+                    busy = true;
+                    error = null;
+                  });
+                  try {
+                    await widget.onSave!(value);
+                  } catch (e) {
+                    if (mounted) {
+                      setState(
+                        () => error = e.toString().replaceFirst(
+                          'Exception: ',
+                          '',
+                        ),
+                      );
+                    }
+                  } finally {
+                    if (mounted) setState(() => busy = false);
+                    widget.onBusyChanged?.call(false);
+                  }
+                },
           icon: const Icon(Icons.check, size: 16),
-          label: const Text('거래 저장'),
+          label: Text(busy ? '저장 중…' : '거래 저장'),
         ),
       ],
     );

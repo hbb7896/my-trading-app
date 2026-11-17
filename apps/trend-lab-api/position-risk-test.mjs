@@ -9,6 +9,101 @@ import {
   fixed,
 } from "./position-risk.mjs";
 import { createApp } from "./server.mjs";
+
+test("unified purchase stays open then projects one journal with its original notes, tags and account", async () => {
+  const token = "unified-journal-test-token-123456789",
+    server = createApp({ token });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = "http://127.0.0.1:" + server.address().port;
+  const call = async (p, method = "GET", body) => {
+    const r = await fetch(base + p, {
+      method,
+      headers: {
+        Authorization: "Bearer " + token,
+        "Content-Type": "application/json",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: r.status, data: await r.json() };
+  };
+  try {
+    const accounts = configuredAccounts({}).map((a) => ({
+      ...a,
+      capital: "13000000",
+    }));
+    await call("/api/positions/accounts", "PUT", { accounts });
+    const initial = {
+      type: "buy",
+      accountId: "isa",
+      actionId: "entry",
+      at: "2026-11-17T09:00:00Z",
+      ticker: "통합 검증",
+      price: "100000",
+      quantity: "8",
+      stop: "95000",
+      memo: "돌파 진입 근거",
+      tags: ["추격매수"],
+    };
+    assert.equal(
+      (await call("/api/positions/cycle/action", "POST", initial)).status,
+      200,
+    );
+    assert.deepEqual((await call("/api/trades")).data, []);
+    const sell = {
+      type: "sell",
+      actionId: "exit",
+      version: 1,
+      at: "2026-11-17T10:00:00Z",
+      price: "110000",
+      allocations: [{ lotId: "entry", quantity: "8" }],
+    };
+    assert.equal(
+      (await call("/api/positions/cycle/action", "POST", sell)).status,
+      200,
+    );
+    assert.equal(
+      (await call("/api/positions/cycle/action", "POST", sell)).status,
+      200,
+    );
+    const rows = (await call("/api/trades")).data;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].memo, initial.memo);
+    assert.deepEqual(rows[0].tags, initial.tags);
+    assert.equal(rows[0].account_id, "isa");
+    assert.equal(rows[0].risk_cycle_id, "cycle");
+    assert.equal(
+      (
+        await call("/api/trades/" + rows[0].id + "/journal", "PATCH", {
+          ...rows[0],
+          memo: "청산 후 복기",
+          original: rows[0],
+        })
+      ).status,
+      200,
+    );
+    const past = await call("/api/trades", "POST", {
+      ticker: "과거 청산",
+      code: "",
+      entry: "",
+      exit: "2026-11-16",
+      buy: 1000,
+      sell: 1200,
+      memo: "이전 거래",
+      account_id: "general",
+    });
+    assert.equal(past.status, 201);
+    assert.equal(past.data.account_name, "일반");
+    assert.equal(past.data.initial_r, undefined);
+    assert.equal(past.data.risk_cycle_id, undefined);
+    assert.equal(
+      (await call("/api/trades", "POST", { ...past.data, account_id: "other" }))
+        .status,
+      400,
+    );
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+});
 import {
   capitalPlan,
   unitOrder,
@@ -169,7 +264,16 @@ test("account settings persist; new cycles snapshot funds and old cycles never c
       (await call("/api/positions/accounts", "PUT", { accounts })).status,
       200,
     );
-    assert.equal((await call('/api/positions/stale/action','POST',{...initial,actionId:'stale',expectedCapital:'13000000'})).status,409);
+    assert.equal(
+      (
+        await call("/api/positions/stale/action", "POST", {
+          ...initial,
+          actionId: "stale",
+          expectedCapital: "13000000",
+        })
+      ).status,
+      409,
+    );
     saved = await call("/api/positions/isa-one/action", "POST", initial);
     assert.equal(saved.status, 200);
     assert.equal(saved.data.initialR, 162500);

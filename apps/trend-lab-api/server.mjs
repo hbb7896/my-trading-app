@@ -8,7 +8,7 @@ import {analyze,validate,validDate} from './analysis.js';
 import {prepareImport} from './import.mjs';
 import {SupabaseStore} from './supabase-store.mjs';
 import {workbookPreview} from './workbook.mjs';
-import {defaultRiskRules,validateRules,configuredAccounts,validateAccounts,accountOverview,unitOrder,applyPositionAction,cycleMetrics,simulatePosition,riskStatistics,closedTrade} from './position-risk.mjs';
+import {accountTypes,defaultRiskRules,validateRules,configuredAccounts,validateAccounts,accountOverview,unitOrder,applyPositionAction,cycleMetrics,simulatePosition,riskStatistics,closedTrade} from './position-risk.mjs';
 
 export function cleanTrade(t){
  if(!t||typeof t.ticker!=='string'||!t.ticker.trim()||t.ticker.length>100)throw Error('종목명을 입력하세요.');
@@ -17,7 +17,7 @@ export function cleanTrade(t){
  for(const k of ['buy','sell'])if(typeof t[k]!=='number'||!Number.isFinite(t[k])||t[k]<0||t[k]>1e15)throw Error('금액을 확인하세요.');
  if(t.buy<=0)throw Error('매수금액은 0보다 커야 합니다.');
  if(typeof t.memo!=='string'||t.memo.length>10000)throw Error('메모는 10,000자까지 입력할 수 있습니다.');
- const extra={};for(const k of ['emotion','discipline','chart_link']){if(t[k]!=null&&(typeof t[k]!=='string'||t[k].length>2048))throw Error('복기 정보를 확인하세요.');extra[k]=t[k]||'';}if(t.tags!=null&&(!Array.isArray(t.tags)||t.tags.length>30||t.tags.some(v=>typeof v!=='string'||v.length>100)))throw Error('태그를 확인하세요.');
+ const extra={};if(t.account_id!=null&&t.account_id!==''){const account=accountTypes.find(a=>a.id===t.account_id);if(!account)throw Error('계좌를 확인하세요.');extra.account_id=account.id;extra.account_name=account.name;}for(const k of ['emotion','discipline','chart_link']){if(t[k]!=null&&(typeof t[k]!=='string'||t[k].length>2048))throw Error('복기 정보를 확인하세요.');extra[k]=t[k]||'';}if(t.tags!=null&&(!Array.isArray(t.tags)||t.tags.length>30||t.tags.some(v=>typeof v!=='string'||v.length>100)))throw Error('태그를 확인하세요.');
  return {...extra,tags:t.tags||[],ticker:t.ticker.trim(),code:t.code,entry:t.entry,exit:t.exit,buy:t.buy,sell:t.sell,memo:t.memo,pnl:t.sell-t.buy,roi:(t.sell/t.buy-1)*100};
 }
 export function createApp({dbPath=':memory:',token,webDir,origins=[],supabase}={}){

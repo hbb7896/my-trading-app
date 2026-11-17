@@ -166,7 +166,7 @@ class ReferenceMaster extends StatelessWidget {
   final ValueChanged<String> onSearch;
   final VoidCallback onNew, onImport, onExport, onRefresh, onSettings, onReal;
   final ValueChanged<Trade> onJournal, onEdit;
-  final Widget? journal, positionView;
+  final Widget? journal, positionView, openPositions;
   const ReferenceMaster({
     super.key,
     required this.trades,
@@ -190,6 +190,7 @@ class ReferenceMaster extends StatelessWidget {
     required this.onEdit,
     this.journal,
     this.positionView,
+    this.openPositions,
   });
   static const icons = [
     Icons.dashboard_outlined,
@@ -664,6 +665,8 @@ class ReferenceMaster extends StatelessWidget {
                               ),
                             if (loading && !demo)
                               const LinearProgressIndicator(),
+                            if (section == 3 && openPositions != null)
+                              openPositions!,
                             if ([6, 10].contains(section) &&
                                 positionView != null)
                               positionView!
@@ -671,7 +674,9 @@ class ReferenceMaster extends StatelessWidget {
                                 !loading &&
                                 ![8, 9].contains(section))
                               MasterPanel(
-                                title: '아직 거래 기록이 없습니다',
+                                title: section == 3
+                                    ? '청산 완료 기록이 없습니다'
+                                    : '아직 거래 기록이 없습니다',
                                 child: Padding(
                                   padding: const EdgeInsets.all(30),
                                   child: Column(
@@ -1826,8 +1831,8 @@ class _MasterAnalysisState extends State<MasterAnalysis> {
     1 => periods(7),
     2 => periods(4),
     3 => MasterPanel(
-      title: '전체 거래 기록',
-      caption: '거래를 클릭해 복기하세요. 종목, 실수 태그, 메모로 검색할 수 있습니다.',
+      title: '청산 완료 거래',
+      caption: '보유 거래는 위에서 관리하고, 청산 거래를 클릭해 복기하세요. 종목·계좌·태그·메모로 검색할 수 있습니다.',
       child: Column(
         children: [
           Padding(
@@ -1836,7 +1841,7 @@ class _MasterAnalysisState extends State<MasterAnalysis> {
               initialValue: widget.query,
               decoration: const InputDecoration(
                 prefixIcon: Icon(Icons.search, size: 17),
-                hintText: '종목 또는 메모 검색',
+                hintText: '종목·계좌·메모 검색',
               ),
               onChanged: widget.onSearch,
             ),
@@ -1845,7 +1850,7 @@ class _MasterAnalysisState extends State<MasterAnalysis> {
             m.ordered.reversed
                 .where(
                   (t) =>
-                      '${t.ticker} ${t.memo} ${(t.extra['tags'] as List? ?? []).join(' ')}'
+                      '${t.ticker} ${t.extra['account_name'] ?? ''} ${t.memo} ${(t.extra['tags'] as List? ?? []).join(' ')}'
                           .toLowerCase()
                           .contains(widget.query.toLowerCase()),
                 )

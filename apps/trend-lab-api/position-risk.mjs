@@ -463,6 +463,26 @@ export function applyPositionAction(current, action, newId) {
   }
   if (c.events.length >= 2000)
     throw Error("한 사이클에 최대 2,000개 이력을 기록할 수 있습니다.");
+  if (action.type === "buy") {
+    if (
+      action.memo != null &&
+      (typeof action.memo !== "string" || action.memo.length > 10000)
+    )
+      throw Error("메모는 10,000자까지 입력할 수 있습니다.");
+    if (
+      action.tags != null &&
+      (!Array.isArray(action.tags) ||
+        action.tags.length > 30 ||
+        action.tags.some((t) => typeof t !== "string" || t.length > 100))
+    )
+      throw Error("태그를 확인하세요.");
+    for (const key of ["emotion", "discipline"])
+      if (
+        action[key] != null &&
+        (typeof action[key] !== "string" || action[key].length > 2048)
+      )
+        throw Error("복기 정보를 확인하세요.");
+  }
   const { actionId, version, ...data } = action;
   c.events.push({ id: actionId, ...data });
   c.version++;
@@ -539,10 +559,10 @@ export function closedTrade(c) {
       .slice(0, 10),
     buy: money(x.buy),
     sell: money(x.sell - x.fees),
-    memo: "R·CR·E 포지션 사이클에서 자동 연결",
-    tags: [],
-    emotion: "",
-    discipline: "",
+    memo: x.first.memo || "R·CR·E 포지션 사이클에서 자동 연결",
+    tags: c.events[0].tags || [],
+    emotion: c.events[0].emotion || "",
+    discipline: c.events[0].discipline || "",
     chart_link: "",
     pnl: money(x.realized),
     roi: ratio(x.realized * 100n, x.buy),

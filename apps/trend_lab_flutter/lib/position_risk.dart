@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'master_reference.dart';
 import 'capital_accounts.dart';
+import 'trade_registration.dart';
+import 'trade.dart';
 
 const riskAssumption =
     '계획상 보호 수익은 지정 손절가에 체결된다는 가정에 따른 예상값입니다. 갭하락, 슬리피지, 거래정지 등으로 실제 결과는 달라질 수 있습니다.';
@@ -15,11 +17,15 @@ class PositionRiskWorkspace extends StatefulWidget {
   final TradingApi? api;
   final bool statisticsOnly;
   final int legacyCount;
+  final String? initialCycleId;
+  final ValueChanged<Trade>? onCompleted;
   const PositionRiskWorkspace({
     super.key,
     this.api,
     this.statisticsOnly = false,
     this.legacyCount = 0,
+    this.initialCycleId,
+    this.onCompleted,
   });
   @override
   State<PositionRiskWorkspace> createState() => _PositionRiskWorkspaceState();
@@ -34,6 +40,7 @@ class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
   @override
   void initState() {
     super.initState();
+    selected = widget.initialCycleId;
     widget.api?.addListener(changed);
     WidgetsBinding.instance.addObserver(this);
     refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => load());
@@ -68,7 +75,13 @@ class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
       if (mounted) {
         setState(() {
           data = result;
-          selectedAccount ??= (result['accounts'] as List? ?? []).isEmpty
+          final requested = (result['cycles'] as List)
+              .cast<Map<String, dynamic>>()
+              .where((c) => c['id'] == widget.initialCycleId)
+              .firstOrNull;
+          selectedAccount ??= requested != null
+              ? requested['accountId'] as String? ?? 'legacy'
+              : (result['accounts'] as List? ?? []).isEmpty
               ? 'legacy'
               : 'isa';
           error = null;
@@ -194,14 +207,36 @@ class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
     }
   }
 
-  void buy(Map<String, dynamic>? cycle) {
-    final accountId = cycle?['accountId'] ?? selectedAccount;
+  Future<void> buy(Map<String, dynamic>? cycle) async {
+    if (cycle == null) {
+      final result = await showDialog<TradeRegistrationResult>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => TradeRegistrationDialog(
+          api: widget.api!,
+          initialAccountId: selectedAccount == 'legacy'
+              ? null
+              : selectedAccount,
+        ),
+      );
+      if (!mounted || result == null) return;
+      if (result.cycleId != null) {
+        setState(() {
+          selected = result.cycleId;
+          selectedAccount = result.accountId;
+        });
+      }
+      if (result.completed != null) widget.onCompleted?.call(result.completed!);
+      await load();
+      return;
+    }
+    final accountId = cycle['accountId'] ?? selectedAccount;
     final account = (data?['accounts'] as List? ?? [])
         .cast<Map<String, dynamic>>()
         .where((a) => a['id'] == accountId)
         .firstOrNull;
     if (account != null) {
-      if (account['plan'] == null && cycle?['capitalPlan'] == null) {
+      if (account['plan'] == null && cycle['capitalPlan'] == null) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('먼저 계좌 기준 자금을 설정하세요.')));
         return;
@@ -218,10 +253,8 @@ class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
       return;
     }
     input(
-      cycle == null ? '새 매매 사이클 · 최초 매수' : '추가 매수 체결',
+      '추가 매수 체결',
       {
-        if (cycle == null) '종목명': '',
-        if (cycle == null) '종목코드 (선택)': '',
         '주문 ID (중복 방지)': 'A_${DateTime.now().microsecondsSinceEpoch}',
         '매수 가격': '',
         '매수 수량': '',
@@ -231,8 +264,6 @@ class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
         '매수 사유': '',
       },
       (v) => action(cycle, 'buy', {
-        if (cycle == null) 'ticker': v['종목명'],
-        if (cycle == null) 'code': v['종목코드 (선택)'],
         'actionId': v['주문 ID (중복 방지)'],
         'price': v['매수 가격'],
         'quantity': v['매수 수량'],
@@ -541,11 +572,9 @@ class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
                   runSpacing: 10,
                   children: [
                     FilledButton.icon(
-                      onPressed: busy || selectedAccount == 'legacy'
-                          ? null
-                          : () => buy(null),
+                      onPressed: busy ? null : () => buy(null),
                       icon: const Icon(Icons.add),
-                      label: const Text('새 매매 사이클'),
+                      label: const Text('거래 등록'),
                     ),
                     OutlinedButton(
                       onPressed: settings,

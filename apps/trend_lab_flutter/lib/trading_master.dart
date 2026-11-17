@@ -14,6 +14,9 @@ import 'master_import.dart';
 import 'master_reference.dart';
 import 'master_sample.dart';
 import 'position_risk.dart';
+import 'trade_registration.dart';
+import 'open_positions.dart';
+export 'journal_tags.dart' show mistakeTags;
 
 const masterSections = [
   '대시보드',
@@ -27,17 +30,6 @@ const masterSections = [
   '미너비니 지표',
   '미너비니 조언',
   '포지션 R·CR·E',
-];
-const mistakeTags = [
-  '추격매수',
-  '손절 지연',
-  '조기청산',
-  '과도한 포지션',
-  '계획 없는 진입',
-  '재진입 남발',
-  '복수매매/뇌동매매',
-  '진입 기준 미충족',
-  '기타',
 ];
 
 class TradingMasterScreen extends StatefulWidget {
@@ -65,6 +57,7 @@ class _TradingMasterScreenState extends State<TradingMasterScreen>
   String query = '';
   bool demo = false;
   Trade? selectedJournal;
+  String? selectedPosition;
   @override
   void initState() {
     super.initState();
@@ -193,7 +186,15 @@ class _TradingMasterScreenState extends State<TradingMasterScreen>
   }
 
   Future<void> edit([Trade? t]) async {
-    if (t?.id.startsWith('DEMO_') == true) {
+    if (t == null) {
+      await register();
+      return;
+    }
+    if (t.extra['risk_cycle_id'] != null) {
+      openPosition(t.extra['risk_cycle_id'] as String);
+      return;
+    }
+    if (t.id.startsWith('DEMO_')) {
       notify('샘플 거래는 수정할 수 없습니다. 새 거래를 등록해주세요.');
       return;
     }
@@ -217,6 +218,39 @@ class _TradingMasterScreenState extends State<TradingMasterScreen>
         notify(e);
       }
     }
+  }
+
+  Future<void> register() async {
+    if (api == null) {
+      if (!widget.preview) {
+        await connect();
+      } else {
+        notify('본인 계정으로 로그인한 후 거래를 등록할 수 있습니다.');
+      }
+      return;
+    }
+    final result = await showDialog<TradeRegistrationResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => TradeRegistrationDialog(api: api!),
+    );
+    if (!mounted || result == null) return;
+    await refresh();
+    if (!mounted) return;
+    if (result.cycleId != null) {
+      openPosition(result.cycleId!);
+    } else if (result.completed != null) {
+      setState(() => selectedJournal = result.completed);
+    }
+  }
+
+  void openPosition(String id) {
+    setState(() {
+      selectedPosition = id;
+      selectedJournal = null;
+      section = 10;
+      query = '';
+    });
   }
 
   Future<void> journal(Trade t) async {
@@ -375,12 +409,19 @@ class _TradingMasterScreenState extends State<TradingMasterScreen>
   @override
   Widget build(BuildContext context) => ReferenceMaster(
     positionView: PositionRiskWorkspace(
-      key: ValueKey(section),
+      key: ValueKey('$section-$selectedPosition'),
       api: api,
+      initialCycleId: selectedPosition,
+      onCompleted: (t) => setState(() => selectedJournal = t),
       statisticsOnly: section == 6,
       legacyCount: trades.where((t) => t.extra['risk_cycle_id'] == null).length,
     ),
     trades: filtered,
+    openPositions: OpenPositionsPanel(
+      api: api,
+      query: query,
+      onOpen: openPosition,
+    ),
     section: section,
     days: days,
     demo: demo,
@@ -392,6 +433,7 @@ class _TradingMasterScreenState extends State<TradingMasterScreen>
       section = v;
       query = '';
       selectedJournal = null;
+      selectedPosition = null;
     }),
     onDays: (v) => setState(() => days = v),
     onSearch: (v) => setState(() => query = v),
@@ -413,6 +455,11 @@ class _TradingMasterScreenState extends State<TradingMasterScreen>
               section = 0;
             }),
             onEdit: edit,
+            onPosition: selectedJournal!.extra['risk_cycle_id'] == null
+                ? null
+                : () => openPosition(
+                    selectedJournal!.extra['risk_cycle_id'] as String,
+                  ),
             onSave: (value) async {
               if (api == null) throw Exception('본인 계정으로 로그인한 후 저장할 수 있습니다.');
               final updated = await api!.saveJournal(value, selectedJournal!);

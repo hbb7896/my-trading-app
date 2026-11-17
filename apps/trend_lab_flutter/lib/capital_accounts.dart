@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import 'api.dart';
 import 'master_reference.dart';
+import 'journal_tags.dart';
 
 String planWon(num value) {
   final parts = value
@@ -160,12 +161,18 @@ class CapitalBuyDialog extends StatefulWidget {
   final Map<String, dynamic> account;
   final Map<String, dynamic>? cycle;
   final Future<void> Function(Map<String, dynamic>) onSave;
+  final Widget? registrationHeader;
+  final bool closeAfterSave;
+  final ValueChanged<bool>? onBusyChanged;
   const CapitalBuyDialog({
     super.key,
     required this.api,
     required this.account,
     this.cycle,
     required this.onSave,
+    this.registrationHeader,
+    this.closeAfterSave = true,
+    this.onBusyChanged,
   });
   @override
   State<CapitalBuyDialog> createState() => _CapitalBuyDialogState();
@@ -188,6 +195,17 @@ class _CapitalBuyDialogState extends State<CapitalBuyDialog> {
   bool busy = false;
   String? error;
   Map<String, dynamic>? suggestion;
+  final Set<String> tags = {};
+  @override
+  void didUpdateWidget(covariant CapitalBuyDialog oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.account['id'] != widget.account['id'] &&
+        price.text.isNotEmpty) {
+      sequence++;
+      suggest();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -231,6 +249,7 @@ class _CapitalBuyDialogState extends State<CapitalBuyDialog> {
   }
 
   Future<void> save() async {
+    widget.onBusyChanged?.call(true);
     setState(() {
       busy = true;
       error = null;
@@ -246,16 +265,18 @@ class _CapitalBuyDialogState extends State<CapitalBuyDialog> {
         'stop': stop.text,
         'fee': fee.text,
         'memo': memo.text,
+        'tags': tags.toList(),
         if (widget.cycle == null) 'ticker': ticker.text,
         if (widget.cycle == null) 'code': code.text,
       });
-      if (mounted) Navigator.pop(context);
+      if (mounted && widget.closeAfterSave) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
         setState(() => error = e.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => busy = false);
+      widget.onBusyChanged?.call(false);
     }
   }
 
@@ -273,9 +294,11 @@ class _CapitalBuyDialogState extends State<CapitalBuyDialog> {
     final plan =
         (widget.cycle?['capitalPlan'] ?? widget.account['plan']) as Map;
     return AlertDialog(
-      title: Text(
-        '${widget.account['name']} · ${widget.cycle == null ? '최초 1유닛 진입' : '추가 1유닛 매수'}',
-      ),
+      title:
+          widget.registrationHeader ??
+          Text(
+            '${widget.account['name']} · ${widget.cycle == null ? '최초 1유닛 진입' : '추가 1유닛 매수'}',
+          ),
       content: SizedBox(
         width: 480,
         child: SingleChildScrollView(
@@ -321,6 +344,29 @@ class _CapitalBuyDialogState extends State<CapitalBuyDialog> {
                   '1주 가격이 1유닛 예산을 초과합니다.',
                   style: TextStyle(color: masterRed),
                 ),
+              const SizedBox(height: 12),
+              const Text('실수 태그 (선택)'),
+              muted('선택한 태그와 매수 사유는 청산 후 매매일지로 이어집니다.', size: 12),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final tag in mistakeTags)
+                    FilterChip(
+                      label: Text(tag, style: const TextStyle(fontSize: 12)),
+                      selected: tags.contains(tag),
+                      onSelected: busy
+                          ? null
+                          : (selected) => setState(() {
+                              if (selected) {
+                                tags.add(tag);
+                              } else {
+                                tags.remove(tag);
+                              }
+                            }),
+                    ),
+                ],
+              ),
               if (error != null)
                 Text(error!, style: const TextStyle(color: masterRed)),
             ],
