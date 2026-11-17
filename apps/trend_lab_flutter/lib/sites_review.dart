@@ -1054,7 +1054,7 @@ class SitesChart extends StatefulWidget {
 
 class _SitesChartState extends State<SitesChart> {
   int window = 40;
-  final averages = <int>{20, 50};
+  final averages = <int>{20, 50, 150};
   int? hovered;
   final chartFocus = FocusNode();
   @override

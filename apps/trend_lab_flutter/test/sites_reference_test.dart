@@ -171,7 +171,7 @@ void main() {
       expect(
         (tester.widget<CustomPaint>(paint).painter as SitesPricePainter)
             .averages,
-        contains(150),
+        isNot(contains(150)),
       );
       await tester.ensureVisible(paint);
       await tester.tap(paint);
