@@ -1,0 +1,235 @@
+{
+  "cycles": [],
+  "rules": {
+    "maxE": "1.5",
+    "maxCR": "0.5",
+    "protectAtR": "2",
+    "minProtectedR": "1",
+    "initialRiskPercent": "0.5",
+    "accountValue": "",
+    "enabled": true,
+    "accounts": [
+      {
+        "id": "dc",
+        "name": "DC 퇴직연금",
+        "capital": "70000000"
+      },
+      {
+        "id": "isa",
+        "name": "ISA",
+        "capital": "13000000"
+      },
+      {
+        "id": "general",
+        "name": "일반",
+        "capital": "9000000"
+      }
+    ]
+  },
+  "statistics": {
+    "count": 0,
+    "totalR": null,
+    "averageWinR": null,
+    "averageLossR": null,
+    "averageR": null,
+    "winRate": null,
+    "lossRate": null,
+    "breakeven": 0,
+    "expectancy": null,
+    "missingBasis": 0,
+    "rows": [],
+    "pyramiding": {
+      "count": 0,
+      "totalR": null,
+      "averageWinR": null,
+      "averageLossR": null,
+      "averageR": null,
+      "winRate": null,
+      "lossRate": null,
+      "breakeven": 0,
+      "expectancy": null
+    },
+    "single": {
+      "count": 0,
+      "totalR": null,
+      "averageWinR": null,
+      "averageLossR": null,
+      "averageR": null,
+      "winRate": null,
+      "lossRate": null,
+      "breakeven": 0,
+      "expectancy": null
+    }
+  },
+  "accounts": [
+    {
+      "id": "dc",
+      "name": "DC 퇴직연금",
+      "capital": "70000000",
+      "plan": {
+        "capital": 70000000,
+        "oneE": 17500000,
+        "oneR": 875000,
+        "unitBudget": 4375000,
+        "unitRisk": 218750,
+        "stopPercent": 5,
+        "initialRiskPercent": 1.25,
+        "unitsPerE": 4
+      },
+      "active": 0,
+      "riskAmount": 0,
+      "givebackAmount": 0,
+      "marketValue": 0,
+      "statistics": {
+        "count": 0,
+        "totalR": null,
+        "averageWinR": null,
+        "averageLossR": null,
+        "averageR": null,
+        "winRate": null,
+        "lossRate": null,
+        "breakeven": 0,
+        "expectancy": null,
+        "missingBasis": 0,
+        "rows": [],
+        "pyramiding": {
+          "count": 0,
+          "totalR": null,
+          "averageWinR": null,
+          "averageLossR": null,
+          "averageR": null,
+          "winRate": null,
+          "lossRate": null,
+          "breakeven": 0,
+          "expectancy": null
+        },
+        "single": {
+          "count": 0,
+          "totalR": null,
+          "averageWinR": null,
+          "averageLossR": null,
+          "averageR": null,
+          "winRate": null,
+          "lossRate": null,
+          "breakeven": 0,
+          "expectancy": null
+        }
+      }
+    },
+    {
+      "id": "isa",
+      "name": "ISA",
+      "capital": "13000000",
+      "plan": {
+        "capital": 13000000,
+        "oneE": 3250000,
+        "oneR": 162500,
+        "unitBudget": 812500,
+        "unitRisk": 40625,
+        "stopPercent": 5,
+        "initialRiskPercent": 1.25,
+        "unitsPerE": 4
+      },
+      "active": 0,
+      "riskAmount": 0,
+      "givebackAmount": 0,
+      "marketValue": 0,
+      "statistics": {
+        "count": 0,
+        "totalR": null,
+        "averageWinR": null,
+        "averageLossR": null,
+        "averageR": null,
+        "winRate": null,
+        "lossRate": null,
+        "breakeven": 0,
+        "expectancy": null,
+        "missingBasis": 0,
+        "rows": [],
+        "pyramiding": {
+          "count": 0,
+          "totalR": null,
+          "averageWinR": null,
+          "averageLossR": null,
+          "averageR": null,
+          "winRate": null,
+          "lossRate": null,
+          "breakeven": 0,
+          "expectancy": null
+        },
+        "single": {
+          "count": 0,
+          "totalR": null,
+          "averageWinR": null,
+          "averageLossR": null,
+          "averageR": null,
+          "winRate": null,
+          "lossRate": null,
+          "breakeven": 0,
+          "expectancy": null
+        }
+      }
+    },
+    {
+      "id": "general",
+      "name": "일반",
+      "capital": "9000000",
+      "plan": {
+        "capital": 9000000,
+        "oneE": 2250000,
+        "oneR": 112500,
+        "unitBudget": 562500,
+        "unitRisk": 28125,
+        "stopPercent": 5,
+        "initialRiskPercent": 1.25,
+        "unitsPerE": 4
+      },
+      "active": 0,
+      "riskAmount": 0,
+      "givebackAmount": 0,
+      "marketValue": 0,
+      "statistics": {
+        "count": 0,
+        "totalR": null,
+        "averageWinR": null,
+        "averageLossR": null,
+        "averageR": null,
+        "winRate": null,
+        "lossRate": null,
+        "breakeven": 0,
+        "expectancy": null,
+        "missingBasis": 0,
+        "rows": [],
+        "pyramiding": {
+          "count": 0,
+          "totalR": null,
+          "averageWinR": null,
+          "averageLossR": null,
+          "averageR": null,
+          "winRate": null,
+          "lossRate": null,
+          "breakeven": 0,
+          "expectancy": null
+        },
+        "single": {
+          "count": 0,
+          "totalR": null,
+          "averageWinR": null,
+          "averageLossR": null,
+          "averageR": null,
+          "winRate": null,
+          "lossRate": null,
+          "breakeven": 0,
+          "expectancy": null
+        }
+      }
+    }
+  ],
+  "totalCapital": 92000000,
+  "totalRiskAmount": 0,
+  "knownRiskAmount": 0,
+  "totalGivebackAmount": 0,
+  "totalMarketValue": 0,
+  "unknownStops": 0,
+  "unassignedCycles": 0
+}

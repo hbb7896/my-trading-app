@@ -33,6 +33,8 @@ class Trade {
         'risk_cycle_id',
         'initial_r',
         'final_r',
+        'account_id',
+        'account_name',
       ])
         if (j.containsKey(k)) k: j[k],
     },

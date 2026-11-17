@@ -45,6 +45,41 @@ class RiskTestApi extends TradingApi {
 
 void main() {
   testWidgets(
+    'account selector shows separate capital plans and renders the real account response on a phone',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      final api = RiskTestApi();
+      api.fixture.addAll(
+        jsonDecode(
+          File('test/fixtures/capital-accounts.json').readAsStringSync(),
+        ) as Map<String, dynamic>,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: PositionRiskWorkspace(api: api, legacyCount: 216),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('1E 3,250,000원 · 1R 162,500원'), findsOneWidget);
+      await tester.tap(find.text('일반'));
+      await tester.pumpAndSettle();
+      expect(find.text('1E 2,250,000원 · 1R 112,500원'), findsOneWidget);
+      await tester.tap(find.text('DC 퇴직연금'));
+      await tester.pumpAndSettle();
+      expect(find.text('1E 17,500,000원 · 1R 875,000원'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+      api.dispose();
+    },
+  );
+  testWidgets(
     'RCE portfolio fits phone and desktop and shows zero CR giveback separately',
     (tester) async {
       final api = RiskTestApi();
@@ -67,9 +102,9 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('0.00 CR'), findsWidgets);
         expect(find.text('2.00R'), findsWidgets);
-        expect(find.text('최초 1R 금액'), findsOneWidget);
+        expect(find.text('고정 1R 기준'), findsOneWidget);
         expect(find.textContaining('CR=0이어도'), findsOneWidget);
-        expect(find.textContaining('기존 거래 213건'), findsOneWidget);
+        expect(find.textContaining('미분류 과거 거래 213건'), findsOneWidget);
         expect(tester.takeException(), isNull);
         await tester.ensureVisible(find.text('위험 규칙'));
         await tester.tap(find.text('위험 규칙'));

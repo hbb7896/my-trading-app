@@ -584,7 +584,7 @@ class ReferenceMaster extends StatelessWidget {
                                             : section == 10
                                             ? '최초 위험은 고정하고, 차수별 CR과 E로 수익 반납 위험을 확인하세요.'
                                             : section == 6
-                                            ? '최초 위험이 확정된 청산 거래의 R 성과입니다.'
+                                            ? '계좌별 고정 R 기준으로 청산 거래의 성과를 확인하세요.'
                                             : '매매 기록을 바탕으로 거래 성과를 살펴보세요.',
                                         size: mobile ? 12 : 14,
                                       ),

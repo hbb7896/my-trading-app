@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'api.dart';
 import 'master_reference.dart';
+import 'capital_accounts.dart';
 
 const riskAssumption =
     '계획상 보호 수익은 지정 손절가에 체결된다는 가정에 따른 예상값입니다. 갭하락, 슬리피지, 거래정지 등으로 실제 결과는 달라질 수 있습니다.';
@@ -27,7 +28,7 @@ class PositionRiskWorkspace extends StatefulWidget {
 class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
     with WidgetsBindingObserver {
   Map<String, dynamic>? data;
-  String? selected, error;
+  String? selected, error, selectedAccount;
   bool busy = false;
   Timer? refreshTimer;
   @override
@@ -67,6 +68,9 @@ class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
       if (mounted) {
         setState(() {
           data = result;
+          selectedAccount ??= (result['accounts'] as List? ?? []).isEmpty
+              ? 'legacy'
+              : 'isa';
           error = null;
         });
       }
@@ -191,6 +195,28 @@ class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
   }
 
   void buy(Map<String, dynamic>? cycle) {
+    final accountId = cycle?['accountId'] ?? selectedAccount;
+    final account = (data?['accounts'] as List? ?? [])
+        .cast<Map<String, dynamic>>()
+        .where((a) => a['id'] == accountId)
+        .firstOrNull;
+    if (account != null) {
+      if (account['plan'] == null && cycle?['capitalPlan'] == null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('먼저 계좌 기준 자금을 설정하세요.')));
+        return;
+      }
+      showDialog<void>(
+        context: context,
+        builder: (_) => CapitalBuyDialog(
+          api: widget.api!,
+          account: account,
+          cycle: cycle,
+          onSave: (values) => action(cycle, 'buy', values),
+        ),
+      );
+      return;
+    }
     input(
       cycle == null ? '새 매매 사이클 · 최초 매수' : '추가 매수 체결',
       {
@@ -254,6 +280,28 @@ class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
 
   void settings() {
     final r = Map<String, dynamic>.from(data!['rules']);
+    if (selectedAccount != 'legacy') {
+      input(
+        '수익보호 경고 · E/CR 기준은 계좌 자금에서 자동 계산',
+        {
+          '보호 조건 시작 R': '${r['protectAtR']}',
+          '최소 보호 수익 R': '${r['minProtectedR']}',
+        },
+        (v) async {
+          await widget.api!.request(
+            '/api/positions/rules',
+            method: 'PUT',
+            body: {
+              ...r,
+              'protectAtR': v['보호 조건 시작 R'],
+              'minProtectedR': v['최소 보호 수익 R'],
+            },
+          );
+          await load();
+        },
+      );
+      return;
+    }
     input(
       '실험용 위험 규칙 · 책의 공식 기준이 아닙니다',
       {
@@ -292,7 +340,13 @@ class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
     ),
   );
   Widget stats() {
-    final s = Map<String, dynamic>.from(data!['statistics']);
+    final account = (data!['accounts'] as List? ?? [])
+        .cast<Map<String, dynamic>>()
+        .where((a) => a['id'] == selectedAccount)
+        .firstOrNull;
+    final s = Map<String, dynamic>.from(
+      account?['statistics'] ?? data!['statistics'],
+    );
     Widget comparison(String title, Map v) => panel(
       title,
       Text(
@@ -303,9 +357,9 @@ class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         panel(
-          '최초 위험 기준 R 성과',
+          account == null ? '기존 R 기준 성과' : '${account['name']} · R 성과',
           muted(
-            '전량 청산되고 최초 R이 확정된 사이클만 집계합니다. 손익 0인 거래는 전체 건수에 포함하며 승리·패배에는 포함하지 않습니다. 기대값은 승률 × 평균 수익 R − 패배율 × 평균 손실 R 절댓값입니다. 기존 거래 ${widget.legacyCount}건은 기준 정보 부족으로 제외합니다.',
+            '전량 청산되고 R 기준이 확정된 사이클만 집계합니다. 손익 0인 거래는 전체 건수에 포함하며 승리·패배에는 포함하지 않습니다. 기대값은 승률 × 평균 수익 R − 패배율 × 평균 손실 R 절댓값입니다. ${account == null ? '기존 최초 진입 기준 기록' : '${account['name']} 계좌 기록'}만 집계합니다. 미분류 과거 거래 ${widget.legacyCount}건은 계좌별 통계에 임의로 배정하지 않습니다.',
           ),
         ),
         cardGrid([
@@ -365,8 +419,16 @@ class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
         ),
       );
     }
-    if (widget.statisticsOnly) return stats();
-    final cycles = (data!['cycles'] as List).cast<Map<String, dynamic>>();
+    final allAccounts = (data!['accounts'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+    final cycles = (data!['cycles'] as List)
+        .cast<Map<String, dynamic>>()
+        .where(
+          (c) => selectedAccount == 'legacy'
+              ? c['accountId'] == null
+              : c['accountId'] == selectedAccount,
+        )
+        .toList();
     final c =
         cycles.where((c) => c['id'] == selected).firstOrNull ??
         cycles.where((c) => c['closed'] == false).firstOrNull ??
@@ -374,209 +436,319 @@ class _PositionRiskWorkspaceState extends State<PositionRiskWorkspace>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        panel(
-          '포지션 · R / CR / E',
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              muted(
-                '최초 1R과 최초 수량은 고정됩니다. 현재가는 직접 입력한 관측값이며 실시간 시세가 아닙니다. 수수료는 체결 시 실현손익에서 한 번 차감합니다.',
-              ),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
+        if (allAccounts.isNotEmpty) ...[
+          MasterPanel(
+            title: '계좌 자금 · 자동 계산',
+            caption: '계좌마다 금액만 설정하고 같은 25%·5%·4유닛 규칙을 사용합니다.',
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  FilledButton.icon(
-                    onPressed: busy ? null : () => buy(null),
-                    icon: const Icon(Icons.add),
-                    label: const Text('새 매매 사이클'),
-                  ),
-                  OutlinedButton(
-                    onPressed: settings,
-                    child: const Text('위험 규칙'),
-                  ),
-                  TextButton(onPressed: load, child: const Text('새로고침')),
-                ],
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('위험 경고 사용 (주문을 막지 않습니다)'),
-                value: data!['rules']['enabled'] == true,
-                onChanged: (value) async {
-                  try {
-                    await widget.api!.request(
-                      '/api/positions/rules',
-                      method: 'PUT',
-                      body: {
-                        ...Map<String, dynamic>.from(data!['rules']),
-                        'enabled': value,
-                      },
-                    );
-                    await load();
-                  } catch (e) {
-                    if (mounted) setState(() => error = e.toString());
-                  }
-                },
-              ),
-              if (error != null)
-                Text(error!, style: const TextStyle(color: masterRed)),
-              for (final row in cycles)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  selected: row['id'] == c?['id'],
-                  title: Text(
-                    '${row['ticker']} · ${row['closed'] == true ? '청산 완료' : '보유 중'}',
-                  ),
-                  subtitle: Text(
-                    '${row['events'][0]['at']} · ${row['quantity']}주 · ${riskValue(row['totalR'])}',
-                  ),
-                  onTap: () => setState(() => selected = row['id'] as String),
-                ),
-              if (cycles.isEmpty)
-                muted('기존 청산 거래는 임의 변환하지 않습니다. 새 매매의 최초 체결부터 기록하세요.'),
-            ],
-          ),
-        ),
-        if (c != null) ...[
-          cardGrid([
-            for (final entry in <String, dynamic>{
-              '최초 1R 금액': c['initialR'] == null
-                  ? '기준 정보 부족'
-                  : masterWon(c['initialR'] as num),
-              '현재 CR': riskValue(c['cr'], ' CR'),
-              '현재 E': riskValue(c['e'], ' E'),
-              '실현손익': riskValue(c['realizedR']),
-              '미실현손익': riskValue(c['unrealizedR']),
-              '총손익': riskValue(c['totalR']),
-              '계획상 보호 수익': riskValue(c['protectedR']),
-              '예상 반납': riskValue(c['givebackR']),
-            }.entries)
-              MasterCard(label: entry.key, value: entry.value as String),
-          ]),
-          panel(
-            '수익 보호 · 현재 ${masterWon(c['mark'] as num)}',
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '현재 총손익 ${masterWon(c['total'] as num)} · 손절 시 예상 최종 손익 ${c['protected'] == null ? '기준 정보 부족' : masterWon(c['protected'] as num)}',
-                ),
-                Text(
-                  '예상 반납액 ${c['giveback'] == null ? '기준 정보 부족' : masterWon(c['giveback'] as num)} · 반납률 ${riskValue(c['givebackPercent'], '%')}',
-                ),
-                Text(
-                  '관측 최고 총손익 ${masterWon(c['peak'] as num)} · 최근 추가 매수 이후 최고 ${c['pyramidPeak'] == null ? '없음' : masterWon(c['pyramidPeak'] as num)}',
-                ),
-                Text(
-                  '최고 총손익 대비 현재 반납률 ${riskValue(c['peakGivebackPercent'], '%')}',
-                ),
-                muted('최고 손익은 입력·저장된 주가 관측값에 한정됩니다. CR=0이어도 평가수익 반납 위험은 남습니다.'),
-                muted(riskAssumption),
-                for (final warning in c['warnings'] as List)
-                  Text('⚠ $warning', style: const TextStyle(color: masterRed)),
-                if (c['closed'] == false)
                   Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      OutlinedButton(
-                        onPressed: busy
-                            ? null
-                            : () => input(
-                                '현재가 관측 기록',
-                                {'현재 가격': '${c['mark']}'},
-                                (v) => action(c, 'mark', {'price': v['현재 가격']}),
-                              ),
-                        child: const Text('현재가 갱신'),
+                      for (final a in allAccounts)
+                        ChoiceChip(
+                          label: Text(a['name'] as String),
+                          selected: selectedAccount == a['id'],
+                          onSelected: (_) => setState(() {
+                            selectedAccount = a['id'] as String;
+                            selected = null;
+                          }),
+                        ),
+                      if ((data!['unassignedCycles'] as num? ?? 0) > 0)
+                        ChoiceChip(
+                          label: const Text('기존 미분류'),
+                          selected: selectedAccount == 'legacy',
+                          onSelected: (_) => setState(() {
+                            selectedAccount = 'legacy';
+                            selected = null;
+                          }),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  for (final a in allAccounts.where(
+                    (a) => a['id'] == selectedAccount,
+                  ))
+                    if (a['plan'] != null) ...[
+                      Text(
+                        '${a['name']} · 기준 자금 ${planWon(a['plan']['capital'] as num)}',
                       ),
-                      OutlinedButton(
-                        onPressed: busy ? null : () => buy(c),
-                        child: const Text('추가 매수 체결'),
+                      Text(
+                        '1E ${planWon(a['plan']['oneE'] as num)} · 1R ${planWon(a['plan']['oneR'] as num)}',
                       ),
-                      OutlinedButton(
-                        onPressed: busy ? null : () => sell(c),
-                        child: const Text('차수별 매도'),
+                      Text(
+                        '1유닛 ${planWon(a['plan']['unitBudget'] as num)} · 유닛 위험 ${planWon(a['plan']['unitRisk'] as num)}',
+                      ),
+                      muted('최초 1유닛=0.25E · 기본 위험 0.25R · 종목당 최대 4유닛=1E'),
+                    ],
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('계좌별 금액 설정'),
+                    initiallyExpanded: allAccounts.every(
+                      (a) => a['plan'] == null,
+                    ),
+                    children: [
+                      CapitalAccountsPanel(
+                        key: ValueKey(
+                          allAccounts.map((a) => a['capital']).join('|'),
+                        ),
+                        api: widget.api!,
+                        accounts: allAccounts,
+                        onSaved: load,
                       ),
                     ],
                   ),
-                if (c['closed'] == true)
-                  muted(
-                    '최종 청산 기록이 거래 목록과 매매일지에 자동 연결됐습니다. 재진입은 새 매매 사이클로 등록하세요.',
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
           panel(
-            '매수 차수별 관리',
+            '전체 계좌 위험 · 기록된 포지션 기준',
             Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final l in c['lots'] as List)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 18),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${(c['lots'] as List).indexOf(l) + 1}차 · ${l['at']}',
-                        ),
-                        Text(
-                          '매수가 ${masterWon(l['price'] as num)} · 최초 ${l['initialQuantity']}주 / 잔여 ${l['remaining']}주',
-                        ),
-                        Text(
-                          '손절 ${l['stop'] == null ? '미입력' : masterWon(l['stop'] as num)} · ${riskValue(l['cr'], ' CR')}',
-                        ),
-                        Text(
-                          '실현 ${masterWon(l['realized'] as num)} · 미실현 ${masterWon(l['unrealized'] as num)} (차수 손익은 수수료 전)',
-                        ),
-                        if ('${l['memo']}'.isNotEmpty) muted('${l['memo']}'),
-                        for (final h in l['history'] as List)
-                          muted(
-                            '${h['at']} · 손절 ${h['from'] ?? '미입력'} → ${h['to']}',
-                          ),
-                        if ((l['remaining'] as num) > 0)
-                          TextButton(
-                            onPressed: busy
-                                ? null
-                                : () => input(
-                                    '차수 손절가 변경',
-                                    {'새 손절가': '${l['stop'] ?? ''}'},
-                                    (v) => action(c, 'stop', {
-                                      'lotId': l['id'],
-                                      'stop': v['새 손절가'],
-                                    }),
-                                  ),
-                            child: const Text('손절가 변경'),
-                          ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          if (c['closed'] == false)
-            PyramidSimulator(
-              key: ValueKey('${c['id']}_${c['version']}'),
-              api: widget.api!,
-              cycle: c,
-            ),
-          panel(
-            '체결·변경 이력',
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final e in c['events'] as List)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Text(
-                      '${e['at']} · ${{'buy': '매수', 'sell': '매도', 'stop': '손절 변경', 'mark': '현재가 관측'}[e['type']]}${e['price'] == null ? '' : ' · ${e['price']}원'}${e['quantity'] == null ? '' : ' · ${e['quantity']}주'}${e['allocations'] == null ? '' : ' · 차수별 배분 ${e['allocations']}'}',
-                    ),
-                  ),
+                Text('전체 기준 자금 ${planWon(data!['totalCapital'] as num)}'),
+                Text(
+                  '현재 손절 위험 ${data!['totalRiskAmount'] == null ? '기준 정보 부족' : planWon(data!['totalRiskAmount'] as num)}',
+                ),
+                Text(
+                  '예상 수익 반납 ${data!['totalGivebackAmount'] == null ? '기준 정보 부족' : planWon(data!['totalGivebackAmount'] as num)}',
+                ),
+                muted(
+                  '계좌별 R은 서로 금액이 다르므로 합산하지 않습니다. 계좌 미분류 사이클 ${data!['unassignedCycles']}건은 전체 합산에서 제외합니다.',
+                ),
               ],
             ),
           ),
         ],
-        stats(),
+        if (widget.statisticsOnly)
+          stats()
+        else ...[
+          panel(
+            '포지션 · R / CR / E',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                muted(
+                  '계좌 자금 기준 1R·1E는 매매 시작 시 고정됩니다. E는 잔여 매입금액 기준이며 현재가는 직접 입력한 관측값입니다. 기존 미분류 매매는 종전 기준을 유지합니다.',
+                ),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: busy || selectedAccount == 'legacy'
+                          ? null
+                          : () => buy(null),
+                      icon: const Icon(Icons.add),
+                      label: const Text('새 매매 사이클'),
+                    ),
+                    OutlinedButton(
+                      onPressed: settings,
+                      child: Text(
+                        selectedAccount == 'legacy' ? '위험 규칙' : '수익보호 경고',
+                      ),
+                    ),
+                    TextButton(onPressed: load, child: const Text('새로고침')),
+                  ],
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('위험 경고 사용 (주문을 막지 않습니다)'),
+                  value: data!['rules']['enabled'] == true,
+                  onChanged: (value) async {
+                    try {
+                      await widget.api!.request(
+                        '/api/positions/rules',
+                        method: 'PUT',
+                        body: {
+                          ...Map<String, dynamic>.from(data!['rules']),
+                          'enabled': value,
+                        },
+                      );
+                      await load();
+                    } catch (e) {
+                      if (mounted) setState(() => error = e.toString());
+                    }
+                  },
+                ),
+                if (error != null)
+                  Text(error!, style: const TextStyle(color: masterRed)),
+                for (final row in cycles)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    selected: row['id'] == c?['id'],
+                    title: Text(
+                      '${row['ticker']} · ${row['closed'] == true ? '청산 완료' : '보유 중'}',
+                    ),
+                    subtitle: Text(
+                      '${row['events'][0]['at']} · ${row['quantity']}주 · ${riskValue(row['totalR'])}',
+                    ),
+                    onTap: () => setState(() => selected = row['id'] as String),
+                  ),
+                if (cycles.isEmpty)
+                  muted('기존 청산 거래는 임의 변환하지 않습니다. 새 매매의 최초 체결부터 기록하세요.'),
+              ],
+            ),
+          ),
+          if (c != null) ...[
+            if (c['capitalPlan'] != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: muted(
+                  '${c['accountName']} · 이 매매의 고정 기준 자금 ${planWon(c['capitalPlan']['capital'] as num)} · 1E ${planWon(c['capitalPlan']['oneE'] as num)}',
+                ),
+              ),
+            cardGrid([
+              for (final entry in <String, dynamic>{
+                '고정 1R 기준': c['initialR'] == null
+                    ? '기준 정보 부족'
+                    : masterWon(c['initialR'] as num),
+                '현재 CR': riskValue(c['cr'], ' CR'),
+                '현재 E': riskValue(c['e'], ' E'),
+                '실현손익': riskValue(c['realizedR']),
+                '미실현손익': riskValue(c['unrealizedR']),
+                '총손익': riskValue(c['totalR']),
+                '계획상 보호 수익': riskValue(c['protectedR']),
+                '예상 반납': riskValue(c['givebackR']),
+              }.entries)
+                MasterCard(label: entry.key, value: entry.value as String),
+            ]),
+            panel(
+              '수익 보호 · 현재 ${masterWon(c['mark'] as num)}',
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '현재 총손익 ${masterWon(c['total'] as num)} · 손절 시 예상 최종 손익 ${c['protected'] == null ? '기준 정보 부족' : masterWon(c['protected'] as num)}',
+                  ),
+                  Text(
+                    '예상 반납액 ${c['giveback'] == null ? '기준 정보 부족' : masterWon(c['giveback'] as num)} · 반납률 ${riskValue(c['givebackPercent'], '%')}',
+                  ),
+                  Text(
+                    '관측 최고 총손익 ${masterWon(c['peak'] as num)} · 최근 추가 매수 이후 최고 ${c['pyramidPeak'] == null ? '없음' : masterWon(c['pyramidPeak'] as num)}',
+                  ),
+                  Text(
+                    '최고 총손익 대비 현재 반납률 ${riskValue(c['peakGivebackPercent'], '%')}',
+                  ),
+                  muted(
+                    '최고 손익은 입력·저장된 주가 관측값에 한정됩니다. CR=0이어도 평가수익 반납 위험은 남습니다.',
+                  ),
+                  muted(riskAssumption),
+                  for (final warning in c['warnings'] as List)
+                    Text(
+                      '⚠ $warning',
+                      style: const TextStyle(color: masterRed),
+                    ),
+                  if (c['closed'] == false)
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        OutlinedButton(
+                          onPressed: busy
+                              ? null
+                              : () => input(
+                                  '현재가 관측 기록',
+                                  {'현재 가격': '${c['mark']}'},
+                                  (v) =>
+                                      action(c, 'mark', {'price': v['현재 가격']}),
+                                ),
+                          child: const Text('현재가 갱신'),
+                        ),
+                        OutlinedButton(
+                          onPressed: busy ? null : () => buy(c),
+                          child: const Text('추가 매수 체결'),
+                        ),
+                        OutlinedButton(
+                          onPressed: busy ? null : () => sell(c),
+                          child: const Text('차수별 매도'),
+                        ),
+                      ],
+                    ),
+                  if (c['closed'] == true)
+                    muted(
+                      '최종 청산 기록이 거래 목록과 매매일지에 자동 연결됐습니다. 재진입은 새 매매 사이클로 등록하세요.',
+                    ),
+                ],
+              ),
+            ),
+            panel(
+              '매수 차수별 관리',
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final l in c['lots'] as List)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${(c['lots'] as List).indexOf(l) + 1}차 · ${l['at']}',
+                          ),
+                          Text(
+                            '매수가 ${masterWon(l['price'] as num)} · 최초 ${l['initialQuantity']}주 / 잔여 ${l['remaining']}주',
+                          ),
+                          Text(
+                            '손절 ${l['stop'] == null ? '미입력' : masterWon(l['stop'] as num)} · ${riskValue(l['cr'], ' CR')}',
+                          ),
+                          Text(
+                            '실현 ${masterWon(l['realized'] as num)} · 미실현 ${masterWon(l['unrealized'] as num)} (차수 손익은 수수료 전)',
+                          ),
+                          if ('${l['memo']}'.isNotEmpty) muted('${l['memo']}'),
+                          for (final h in l['history'] as List)
+                            muted(
+                              '${h['at']} · 손절 ${h['from'] ?? '미입력'} → ${h['to']}',
+                            ),
+                          if ((l['remaining'] as num) > 0)
+                            TextButton(
+                              onPressed: busy
+                                  ? null
+                                  : () => input(
+                                      '차수 손절가 변경',
+                                      {'새 손절가': '${l['stop'] ?? ''}'},
+                                      (v) => action(c, 'stop', {
+                                        'lotId': l['id'],
+                                        'stop': v['새 손절가'],
+                                      }),
+                                    ),
+                              child: const Text('손절가 변경'),
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (c['closed'] == false)
+              PyramidSimulator(
+                key: ValueKey('${c['id']}_${c['version']}'),
+                api: widget.api!,
+                cycle: c,
+              ),
+            panel(
+              '체결·변경 이력',
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final e in c['events'] as List)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Text(
+                        '${e['at']} · ${{'buy': '매수', 'sell': '매도', 'stop': '손절 변경', 'mark': '현재가 관측'}[e['type']]}${e['price'] == null ? '' : ' · ${e['price']}원'}${e['quantity'] == null ? '' : ' · ${e['quantity']}주'}${e['allocations'] == null ? '' : ' · 차수별 배분 ${e['allocations']}'}',
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+          stats(),
+        ],
       ],
     );
   }

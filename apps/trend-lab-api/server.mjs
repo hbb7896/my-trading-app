@@ -8,7 +8,7 @@ import {analyze,validate,validDate} from './analysis.js';
 import {prepareImport} from './import.mjs';
 import {SupabaseStore} from './supabase-store.mjs';
 import {workbookPreview} from './workbook.mjs';
-import {defaultRiskRules,validateRules,applyPositionAction,cycleMetrics,simulatePosition,riskStatistics,closedTrade} from './position-risk.mjs';
+import {defaultRiskRules,validateRules,configuredAccounts,validateAccounts,accountOverview,unitOrder,applyPositionAction,cycleMetrics,simulatePosition,riskStatistics,closedTrade} from './position-risk.mjs';
 
 export function cleanTrade(t){
  if(!t||typeof t.ticker!=='string'||!t.ticker.trim()||t.ticker.length>100)throw Error('종목명을 입력하세요.');
@@ -46,14 +46,18 @@ export function createApp({dbPath=':memory:',token,webDir,origins=[],supabase}={
  const body=async(limit=65536)=>{const chunks=[];let size=0;for await(const part of req){size+=part.length;if(size>limit)throw Error('요청이 너무 큽니다.');chunks.push(part);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));};
  const positions=async()=>cloud?cloud.positions(identity):db.prepare('SELECT payload FROM position_cycles ORDER BY id').all().map(r=>JSON.parse(r.payload));
  const riskRules=async()=>validateRules((cloud?await cloud.riskRules(identity):JSON.parse(db.prepare('SELECT payload FROM position_risk_settings WHERE id=1').get()?.payload||'null'))||defaultRiskRules);
- if(url.pathname==='/api/positions'&&req.method==='GET'){const cycles=await positions(),rules=await riskRules();return send({cycles:cycles.map(c=>cycleMetrics(c,rules)),rules,statistics:riskStatistics(cycles)});}
+ if(url.pathname==='/api/positions'&&req.method==='GET'){const cycles=await positions(),rules=await riskRules();return send({cycles:cycles.map(c=>cycleMetrics(c,rules)),rules,statistics:riskStatistics(cycles.filter(c=>!c.events[0].basis)),...accountOverview(cycles,rules)});}
+ if(url.pathname==='/api/positions/accounts'&&req.method==='PUT'){const input=await body(),rules=await riskRules(),accounts=validateAccounts(input.accounts),next=validateRules({...rules,accounts});if(cloud)await cloud.saveRiskRules(identity,next);else db.prepare('INSERT INTO position_risk_settings VALUES(1,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload').run(JSON.stringify(next));return send(accountOverview(await positions(),next));}
+ if(url.pathname==='/api/positions/unit-plan'&&req.method==='POST'){const input=await body(),account=configuredAccounts(await riskRules()).find(a=>a.id===input.accountId);let capital=account?.capital;if(input.cycleId){const cycle=cloud?await cloud.position(identity,input.cycleId):JSON.parse(db.prepare('SELECT payload FROM position_cycles WHERE id=?').get(input.cycleId)?.payload||'null');if(!cycle||cycle.events[0].basis?.accountId!==input.accountId)throw Error('계좌와 매매 사이클을 확인하세요.');capital=cycle.events[0].basis.capital;}if(!capital)throw Error('먼저 계좌 기준 자금을 설정하세요.');return send(unitOrder(capital,input.price));}
  if(url.pathname==='/api/positions/rules'&&req.method==='PUT'){const rules=validateRules(await body());if(cloud)await cloud.saveRiskRules(identity,rules);else db.prepare('INSERT INTO position_risk_settings VALUES(1,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload').run(JSON.stringify(rules));return send(rules);}
  const positionRoute=url.pathname.match(/^\/api\/positions\/([^/]+)\/(action|simulate)$/);
  if(positionRoute&&req.method==='POST'){
   const id=decodeURIComponent(positionRoute[1]);if(!/^[a-zA-Z0-9_-]{1,100}$/.test(id))throw Error('사이클 ID를 확인하세요.');
   const input=await body(),current=cloud?await cloud.position(identity,id):JSON.parse(db.prepare('SELECT payload FROM position_cycles WHERE id=?').get(id)?.payload||'null'),rules=await riskRules();
   if(positionRoute[2]==='simulate'){if(!current)throw Error('포지션이 없습니다.');return send(simulatePosition(current,input,rules));}
-  const next=applyPositionAction(current,input,id),projection=closedTrade(next);if(projection&&(projection.sell<0||projection.buy>1e15||projection.sell>1e15))throw Error('누적 거래 금액이 저장 한도를 초과합니다.');
+  const action={...input};delete action.basis;
+  if(input.accountId){const account=configuredAccounts(rules).find(a=>a.id===input.accountId);if(!account)throw Error('계좌를 선택하세요.');if(!current){if(input.expectedCapital!=null&&input.expectedCapital!==account.capital)throw Object.assign(Error('계좌 자금이 변경됐습니다. 새로고침 후 다시 입력하세요.'),{status:409});if(!account.capital)throw Error('먼저 계좌 기준 자금을 설정하세요.');action.basis={mode:'account-capital-v1',accountId:account.id,capital:account.capital};}else if(current.events[0].id===input.actionId){action.basis=current.events[0].basis;}else if(current.events[0].basis?.accountId!==account.id)throw Error('사이클의 계좌를 변경할 수 없습니다.');}
+  const next=applyPositionAction(current,action,id),projection=closedTrade(next);if(projection&&(projection.sell<0||projection.buy>1e15||projection.sell>1e15))throw Error('누적 거래 금액이 저장 한도를 초과합니다.');
   if(next.version!==(current?.version??0)){
    if(cloud){const committed=await cloud.commitPosition(identity,current?.version??0,next,projection);if(committed!==true)return send({error:'다른 화면에서 변경됐습니다. 새로고침하세요.'},409);}
    else{db.exec('BEGIN IMMEDIATE');try{const existing=db.prepare('SELECT payload FROM position_cycles WHERE id=?').get(id);if((existing?JSON.parse(existing.payload).version:0)!==(current?.version??0))throw Object.assign(Error('동시에 변경됐습니다.'),{status:409});db.prepare('INSERT INTO position_cycles VALUES(?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload').run(id,JSON.stringify(next));if(projection)db.prepare('INSERT INTO trades VALUES(?,?)').run('RISK_'+id,JSON.stringify(projection));db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}}

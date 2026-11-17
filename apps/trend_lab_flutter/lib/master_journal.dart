@@ -164,7 +164,7 @@ class _MasterJournalPageState extends State<MasterJournalPage> {
         MasterPanel(
           title: '${t.ticker} 매매일지',
           caption:
-              '${t.entry.isEmpty ? '진입일 미입력' : t.entry} · ${t.exit} 청산${holding(t) == null ? '' : ' · ${holding(t)}일 보유'}',
+              '${t.extra['account_name'] == null ? '' : '${t.extra['account_name']} · '}${t.entry.isEmpty ? '진입일 미입력' : t.entry} · ${t.exit} 청산${holding(t) == null ? '' : ' · ${holding(t)}일 보유'}',
           action: sample || t.extra['risk_cycle_id'] != null
               ? null
               : IconButton(
@@ -192,11 +192,11 @@ class _MasterJournalPageState extends State<MasterJournalPage> {
                 color: masterSign(t.roi),
               ),
               MasterCard(
-                label: '최초 위험 기준 성과',
+                label: '고정 R 기준 성과',
                 value: riskValue(t.extra['final_r']),
                 caption: t.extra['initial_r'] == null
                     ? '최초 손절가·수량 기준 정보 부족'
-                    : '최초 1R ${masterWon(t.extra['initial_r'] as num)}',
+                    : '고정 1R ${masterWon(t.extra['initial_r'] as num)}',
               ),
             ]),
           ),

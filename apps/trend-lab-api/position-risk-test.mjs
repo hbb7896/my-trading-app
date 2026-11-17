@@ -9,6 +9,209 @@ import {
   fixed,
 } from "./position-risk.mjs";
 import { createApp } from "./server.mjs";
+import {
+  capitalPlan,
+  unitOrder,
+  configuredAccounts,
+  accountOverview,
+} from "./position-risk.mjs";
+
+test("capital alone determines E, R, units and risk across the three accounts", () => {
+  for (const [capital, oneE, oneR, unitBudget, unitRisk] of [
+    ["70000000", 17500000, 875000, 4375000, 218750],
+    ["13000000", 3250000, 162500, 812500, 40625],
+    ["9000000", 2250000, 112500, 562500, 28125],
+  ]) {
+    const p = capitalPlan(capital);
+    assert.deepEqual(
+      [p.oneE, p.oneR, p.unitBudget, p.unitRisk],
+      [oneE, oneR, unitBudget, unitRisk],
+    );
+  }
+  assert.equal(capitalPlan("1").unitRisk, 0.003125);
+  for (const invalid of ["0", "-1", "NaN", "1300.5", "1300万", "1000000000001"])
+    assert.throws(() => capitalPlan(invalid));
+  const order = unitOrder("13000000", "100000");
+  assert.equal(order.quantity, 8);
+  assert.equal(order.stop, 95000);
+  assert.equal(order.buyAmount, 800000);
+  assert.equal(order.unusedBudget, 12500);
+});
+
+test("account cycles fix capital-based R and cost-based E while preserving legacy cycles", () => {
+  const action = {
+    type: "buy",
+    actionId: "account_first",
+    at: "2026-11-16T09:00:00+09:00",
+    ticker: "계좌 검증",
+    price: "8125",
+    quantity: "100",
+    stop: "7718.75",
+    basis: {
+      mode: "account-capital-v1",
+      accountId: "isa",
+      capital: "13000000",
+    },
+  };
+  let c = apply(null, action, "account-cycle");
+  assert.deepEqual(
+    [metrics(c).initialR, metrics(c).e, metrics(c).cr],
+    [162500, 0.25, 0.25],
+  );
+  c = act(c, "mark", { price: "9750" });
+  assert.equal(metrics(c).e, 0.25);
+  assert.equal(metrics(c).unrealizedR, 1);
+  c = act(c, "buy", { price: "8125", quantity: "100", stop: "7718.75" });
+  assert.equal(metrics(c).e, 0.5);
+  assert.equal(metrics(c).cr, 0.5);
+  c = act(c, "sell", {
+    price: "9750",
+    allocations: [{ lotId: "account_first", quantity: "50" }],
+  });
+  assert.equal(metrics(c).e, 0.375);
+  assert.equal(metrics(c).initialR, 162500);
+  assert.throws(() =>
+    act(c, "mark", {
+      price: "9750",
+      basis: { ...action.basis, capital: "9000000" },
+    }),
+  );
+  assert.equal(metrics(start()).initialR, 1000000);
+});
+
+test("overview sums money across accounts without adding different R units", () => {
+  const accounts = configuredAccounts({}).map((a) => ({
+    ...a,
+    capital:
+      a.id === "isa" ? "13000000" : a.id === "general" ? "9000000" : "70000000",
+  }));
+  const make = (accountId, capital) =>
+    apply(
+      null,
+      {
+        type: "buy",
+        actionId: "first",
+        at: "2026-11-17T09:00:00Z",
+        ticker: "합산 검증",
+        price: "100",
+        quantity: "10",
+        stop: "95",
+        basis: { mode: "account-capital-v1", accountId, capital },
+      },
+      accountId,
+    );
+  const result = accountOverview(
+    [make("isa", "13000000"), make("general", "9000000"), start()],
+    { ...rules, accounts },
+  );
+  assert.equal(result.totalCapital, 92000000);
+  assert.equal(result.totalRiskAmount, 100);
+  assert.equal(result.unassignedCycles, 1);
+  assert.equal(result.accounts[0].active, 0);
+  assert.equal(result.accounts[1].active, 1);
+});
+
+test("account settings persist; new cycles snapshot funds and old cycles never change on edits", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs"),
+    { tmpdir } = await import("node:os"),
+    { join } = await import("node:path");
+  const folder = mkdtempSync(join(tmpdir(), "rce-accounts-")),
+    token = "account-settings-test-token-123456",
+    dbPath = join(folder, "test.sqlite");
+  let server = createApp({ token, dbPath });
+  const startServer = async () => {
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    return "http://127.0.0.1:" + server.address().port;
+  };
+  let base = await startServer();
+  const call = async (path, method = "GET", body) => {
+    const r = await fetch(base + path, {
+      method,
+      headers: {
+        Authorization: "Bearer " + token,
+        "Content-Type": "application/json",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return { status: r.status, data: await r.json() };
+  };
+  try {
+    const accounts = configuredAccounts({}).map((a) => ({
+      ...a,
+      capital:
+        a.id === "isa"
+          ? "13000000"
+          : a.id === "general"
+            ? "9000000"
+            : "70000000",
+    }));
+    assert.equal(
+      (await call("/api/positions/accounts", "PUT", { accounts })).status,
+      200,
+    );
+    const initial = {
+      type: "buy",
+      accountId: "isa",
+      actionId: "one",
+      at: "2026-11-17T09:00:00Z",
+      ticker: "계좌 API 검증",
+      price: "8125",
+      quantity: "100",
+      stop: "7718.75",
+      basis: { mode: "account-capital-v1", accountId: "isa", capital: "1" },
+    };
+    let saved = await call("/api/positions/isa-one/action", "POST", initial);
+    assert.equal(saved.status, 200);
+    assert.equal(saved.data.initialR, 162500);
+    assert.equal(saved.data.e, 0.25);
+    accounts[1].capital = "26000000";
+    assert.equal(
+      (await call("/api/positions/accounts", "PUT", { accounts })).status,
+      200,
+    );
+    assert.equal((await call('/api/positions/stale/action','POST',{...initial,actionId:'stale',expectedCapital:'13000000'})).status,409);
+    saved = await call("/api/positions/isa-one/action", "POST", initial);
+    assert.equal(saved.status, 200);
+    assert.equal(saved.data.initialR, 162500);
+    const oldPlan = await call("/api/positions/unit-plan", "POST", {
+      accountId: "isa",
+      cycleId: "isa-one",
+      price: "100000",
+    });
+    assert.equal(oldPlan.data.quantity, 8);
+    const newPlan = await call("/api/positions/unit-plan", "POST", {
+      accountId: "isa",
+      price: "100000",
+    });
+    assert.equal(newPlan.data.quantity, 16);
+    assert.equal(
+      (
+        await call("/api/positions/unit-plan", "POST", {
+          accountId: "general",
+          cycleId: "isa-one",
+          price: "100000",
+        })
+      ).status,
+      400,
+    );
+    saved = await call("/api/positions/isa-two/action", "POST", {
+      ...initial,
+      actionId: "two",
+    });
+    assert.equal(saved.data.initialR, 325000);
+    await new Promise((r) => server.close(r));
+    server = createApp({ token, dbPath });
+    base = await startServer();
+    const state = (await call("/api/positions")).data;
+    assert.equal(state.accounts[1].capital, "26000000");
+    assert.equal(state.cycles.find((c) => c.id === "isa-one").initialR, 162500);
+    assert.equal(state.cycles.find((c) => c.id === "isa-two").initialR, 325000);
+    assert.deepEqual((await call("/api/trades")).data, []);
+  } finally {
+    await new Promise((r) => server.close(r));
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
 let serial = 0;
 const act = (c, type, data = {}) =>
   apply(
