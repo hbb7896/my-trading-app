@@ -23,12 +23,9 @@ const masterSections = [
   '월별 성과',
   '연도별 성과',
   '거래 기록',
-  'Trading DNA',
   '손익비 분석',
   'R-배수 분석',
   '손익 분포',
-  '미너비니 지표',
-  '미너비니 조언',
   '포지션 R·CR·E',
 ];
 
@@ -248,7 +245,7 @@ class _TradingMasterScreenState extends State<TradingMasterScreen>
     setState(() {
       selectedPosition = id;
       selectedJournal = null;
-      section = 10;
+      section = 7;
       query = '';
     });
   }
@@ -413,7 +410,7 @@ class _TradingMasterScreenState extends State<TradingMasterScreen>
       api: api,
       initialCycleId: selectedPosition,
       onCompleted: (t) => setState(() => selectedJournal = t),
-      statisticsOnly: section == 6,
+      statisticsOnly: section == 5,
       legacyCount: trades.where((t) => t.extra['risk_cycle_id'] == null).length,
     ),
     trades: filtered,

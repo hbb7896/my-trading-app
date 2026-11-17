@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'master_metrics.dart';
 import 'trade.dart';
 import 'trading_master.dart' show masterSections;
-import 'master_target.dart';
 
 const masterMint = Color(0xff86dfb4),
     masterRed = Color(0xffed7e86),
@@ -197,12 +196,9 @@ class ReferenceMaster extends StatelessWidget {
     Icons.calendar_month_outlined,
     Icons.date_range_outlined,
     Icons.assignment_outlined,
-    Icons.psychology_outlined,
     Icons.balance_outlined,
     Icons.track_changes_outlined,
     Icons.bar_chart_outlined,
-    Icons.menu_book_outlined,
-    Icons.chat_bubble_outline,
     Icons.shield_outlined,
   ];
   Widget toolbar(bool mobile) {
@@ -330,7 +326,7 @@ class ReferenceMaster extends StatelessWidget {
           muted('WORKSPACE', size: 11),
           const SizedBox(height: 12),
           for (int i = 0; i < masterSections.length; i++) ...[
-            if (i == 5)
+            if (i == 4)
               Padding(
                 padding: const EdgeInsets.only(top: 22, bottom: 12),
                 child: muted('분석 도구', size: 12),
@@ -374,7 +370,6 @@ class ReferenceMaster extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (i == 4) badge('DNA'),
                       ],
                     ),
                   ),
@@ -562,8 +557,6 @@ class ReferenceMaster extends StatelessWidget {
                                       Text(
                                         section == 0
                                             ? 'PERFORMANCE OVERVIEW'
-                                            : section == 4
-                                            ? 'UNDERSTAND YOUR EDGE'
                                             : 'TRADING JOURNAL',
                                         style: const TextStyle(
                                           fontSize: 10,
@@ -587,11 +580,9 @@ class ReferenceMaster extends StatelessWidget {
                                       muted(
                                         section == 0
                                             ? '꾸준한 기록으로 성과를 확인하고, 나만의 매매 패턴을 발견하세요.'
-                                            : section == 4
-                                            ? '숫자에 담긴 나의 매매 성향과 변화의 흐름을 확인하세요.'
-                                            : section == 10
+                                            : section == 7
                                             ? '최초 위험은 고정하고, 차수별 CR과 E로 수익 반납 위험을 확인하세요.'
-                                            : section == 6
+                                            : section == 5
                                             ? '계좌별 고정 R 기준으로 청산 거래의 성과를 확인하세요.'
                                             : '매매 기록을 바탕으로 거래 성과를 살펴보세요.',
                                         size: mobile ? 12 : 14,
@@ -600,7 +591,7 @@ class ReferenceMaster extends StatelessWidget {
                                   ),
                                 ),
                                 const SizedBox(width: 12),
-                                if (![6, 10].contains(section))
+                                if (![5, 7].contains(section))
                                   FilledButton.icon(
                                     onPressed: onNew,
                                     icon: const Icon(Icons.add, size: 18),
@@ -609,9 +600,9 @@ class ReferenceMaster extends StatelessWidget {
                               ],
                             ),
                             const SizedBox(height: 27),
-                            if (![6, 10].contains(section)) toolbar(mobile),
+                            if (![5, 7].contains(section)) toolbar(mobile),
                             const SizedBox(height: 20),
-                            if (demo && ![6, 10].contains(section))
+                            if (demo && ![5, 7].contains(section))
                               Container(
                                 margin: const EdgeInsets.only(bottom: 20),
                                 padding: const EdgeInsets.all(12),
@@ -674,12 +665,10 @@ class ReferenceMaster extends StatelessWidget {
                               const LinearProgressIndicator(),
                             if (section == 3 && openPositions != null)
                               openPositions!,
-                            if ([6, 10].contains(section) &&
+                            if ([5, 7].contains(section) &&
                                 positionView != null)
                               positionView!
-                            else if (trades.isEmpty &&
-                                !loading &&
-                                ![8, 9].contains(section))
+                            else if (trades.isEmpty && !loading)
                               MasterPanel(
                                 title: section == 3
                                     ? '청산 완료 기록이 없습니다'
@@ -1062,93 +1051,14 @@ class _MasterAnalysisState extends State<MasterAnalysis> {
           child: MasterChart(points: groupedPoints(7), bars: true, height: 336),
         ),
       ),
-      pair(
-        MasterPanel(
-          title: '최근 거래',
-          caption: '거래를 클릭하면 해당 매매일지가 열립니다.',
-          action: TextButton(
-            onPressed: () => widget.onSection(3),
-            child: const Text('전체 보기 ›'),
-          ),
-          child: table(m.ordered.reversed.take(5).toList(), compact: true),
+      MasterPanel(
+        title: '최근 거래',
+        caption: '거래를 클릭하면 해당 매매일지가 열립니다.',
+        action: TextButton(
+          onPressed: () => widget.onSection(3),
+          child: const Text('전체 보기 ›'),
         ),
-        MasterPanel(
-          title: '나의 Trading DNA',
-          action: const Icon(
-            Icons.psychology_outlined,
-            color: masterMint,
-            size: 21,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(22, 0, 22, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                badge('MY TRADING TYPE', color: masterMint),
-                const SizedBox(height: 20),
-                Text(
-                  m.dnaType,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                muted(
-                  m.dnaType == 'Trend Follower'
-                      ? '작은 손실을 관리하며 큰 수익을 따라가는 매매 구조입니다.'
-                      : '승률과 손익비, 큰 승자의 기여도를 함께 관찰해보세요.',
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          muted('평균 손익비'),
-                          const SizedBox(height: 12),
-                          Text(
-                            '${ratio(m.rewardRisk)} : 1',
-                            style: const TextStyle(fontSize: 23),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          muted('Big Winner 기여도'),
-                          const SizedBox(height: 12),
-                          Text(
-                            '${m.contribution.toStringAsFixed(1)}%',
-                            style: const TextStyle(fontSize: 23),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const Divider(height: 38),
-                Row(
-                  children: [
-                    Expanded(child: muted('최근 Edge 상태')),
-                    badge(m.edgeStatus, color: masterMint),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () => widget.onSection(4),
-                    child: const Text('내 Trading DNA 살펴보기 ›'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+        child: table(m.ordered.reversed.take(5).toList(), compact: true),
       ),
       cardGrid([
         MasterCard(
@@ -1290,197 +1200,6 @@ class _MasterAnalysisState extends State<MasterAnalysis> {
     );
   }
 
-  Widget holdingDna() {
-    final valid = widget.trades.where((t) => (holding(t) ?? -1) >= 0).toList();
-    const ranges = [
-      (0, 0, '당일'),
-      (1, 3, '1~3일'),
-      (4, 10, '4~10일'),
-      (11, 30, '11~30일'),
-      (31, 90, '31~90일'),
-      (91, 100000, '91일+'),
-    ];
-    return MasterPanel(
-      title: 'Holding Period DNA',
-      caption: '진입일과 청산일이 모두 있는 거래를 분석합니다.',
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: cardGrid([
-              MasterCard(label: '보유기간 데이터', value: '${valid.length}/${m.n}건'),
-              MasterCard(
-                label: '수익거래 평균 보유',
-                value: '${m.averageDays(true)?.toStringAsFixed(1) ?? '—'}일',
-              ),
-              MasterCard(
-                label: '손실거래 평균 보유',
-                value: '${m.averageDays(false)?.toStringAsFixed(1) ?? '—'}일',
-              ),
-              MasterCard(
-                label: 'Big Winner 평균 보유',
-                value: m.big.where((t) => holding(t) != null).isEmpty
-                    ? '—'
-                    : '${mean(m.big.map(holding).whereType<int>()).toStringAsFixed(1)}일',
-              ),
-            ]),
-          ),
-          horizontalTable(
-            ['보유구간', '거래수', '승률', 'PF', '기대수익률', '총 손익'],
-            [
-              for (final range in ranges)
-                ...() {
-                  final x = MasterMetrics(
-                    valid.where(
-                      (t) => holding(t)! >= range.$1 && holding(t)! <= range.$2,
-                    ),
-                  );
-                  return x.n == 0
-                      ? <List<String>>[]
-                      : [
-                          [
-                            range.$3,
-                            '${x.n}건',
-                            '${x.winRate.toStringAsFixed(1)}%',
-                            ratio(x.profitFactor),
-                            masterPct(x.expectancy),
-                            masterWon(x.net),
-                          ],
-                        ];
-                }(),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget dna() => Column(
-    children: [
-      MasterPanel(
-        title: m.dnaType,
-        caption: '${m.n}건의 기록을 바탕으로 한 매매 성향 · 최근 상태 ${m.edgeStatus}',
-        child: const Padding(
-          padding: EdgeInsets.all(20),
-          child: Text(
-            'MY TRADING TYPE',
-            style: TextStyle(color: masterMint, letterSpacing: 2),
-          ),
-        ),
-      ),
-      cardGrid([
-        MasterCard(label: '승률', value: '${m.winRate.toStringAsFixed(1)}%'),
-        MasterCard(label: '평균 손익비', value: ratio(m.rewardRisk)),
-        MasterCard(label: 'Profit Factor', value: ratio(m.profitFactor)),
-        MasterCard(label: '거래당 기대수익률', value: masterPct(m.expectancy)),
-      ]),
-      MasterPanel(
-        title: 'Big Winner DNA',
-        caption: 'Big Winner 기준: 수익률 +${m.bigThreshold.toStringAsFixed(2)}% 이상',
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: cardGrid([
-                MasterCard(
-                  label: '수익 기여도',
-                  value: '${m.contribution.toStringAsFixed(1)}%',
-                ),
-                MasterCard(label: 'Big Winner 거래', value: '${m.big.length}건'),
-                MasterCard(
-                  label: '상위 10% 수익 기여',
-                  value: '${topContribution().toStringAsFixed(1)}%',
-                ),
-              ]),
-            ),
-            table(m.big.reversed.toList(), compact: true),
-          ],
-        ),
-      ),
-      holdingDna(),
-      MasterPanel(
-        title: 'Risk DNA',
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: cardGrid([
-            MasterCard(
-              label: '평균 손실률',
-              value: '−${m.averageLoss.toStringAsFixed(2)}%',
-            ),
-            MasterCard(
-              label: '최대 손실률',
-              value:
-                  '−${widget.trades.fold<double>(0, (a, t) => math.max(a, -t.roi)).toStringAsFixed(2)}%',
-            ),
-            MasterCard(label: '최대 연속 손실', value: '${m.streak(false)}회'),
-            MasterCard(label: '최대 연속 수익', value: '${m.streak(true)}회'),
-          ]),
-        ),
-      ),
-      MasterPanel(
-        title: 'Edge Change Detection',
-        caption: '최근 20거래와 직전 최대 20거래 비교',
-        child: m.previous.n < 5
-            ? Padding(
-                padding: const EdgeInsets.all(22),
-                child: muted('구간 비교에는 최소 25건의 거래가 필요합니다.'),
-              )
-            : horizontalTable(
-                [
-                  '지표',
-                  '전체',
-                  '직전 ${m.previous.n}거래',
-                  '최근 ${m.recent.n}거래',
-                  '변화',
-                ],
-                [
-                  for (final key in [
-                    '승률',
-                    'Profit Factor',
-                    '손익비',
-                    '기대수익률',
-                    '평균 수익률',
-                    '평균 손실률',
-                  ])
-                    ...() {
-                      double? read(MasterMetrics x) => switch (key) {
-                        '승률' => x.winRate,
-                        'Profit Factor' => x.profitFactor,
-                        '손익비' => x.rewardRisk,
-                        '기대수익률' => x.expectancy,
-                        '평균 수익률' => x.averageWin,
-                        _ => x.averageLoss,
-                      };
-                      final a = read(m.previous), b = read(m.recent);
-                      return [
-                        [
-                          key,
-                          ratio(read(m)),
-                          ratio(a),
-                          ratio(b),
-                          a == null || b == null || !a.isFinite || !b.isFinite
-                              ? '—'
-                              : (b - a).toStringAsFixed(2),
-                        ],
-                      ];
-                    }(),
-                ],
-              ),
-      ),
-      distribution(compact: true),
-    ],
-  );
-  double topContribution() {
-    final wins = m.wins..sort((a, b) => b.pnl.compareTo(a.pnl));
-    return m.grossProfit == 0
-        ? 0
-        : wins
-                  .take(math.max(1, (wins.length * .1).ceil()))
-                  .fold<double>(0, (a, t) => a + t.pnl) /
-              m.grossProfit *
-              100;
-  }
-
   Widget victor() => Column(
     children: [
       cardGrid([
@@ -1519,318 +1238,6 @@ class _MasterAnalysisState extends State<MasterAnalysis> {
       child: muted('기준 정보 부족 · 최초 매수가, 손절가, 수량이 있는 포지션 사이클만 R을 계산합니다.'),
     ),
   );
-
-  Widget minervini() {
-    final years =
-        widget.trades.map((t) => t.exit.substring(0, 4)).toSet().toList()
-          ..sort((a, b) => b.compareTo(a));
-    if (years.isEmpty) years.add(DateTime.now().year.toString());
-    final selected = years.contains(year) ? year! : years.first;
-    final x = MasterMetrics(
-      widget.trades.where((t) => t.exit.startsWith(selected)),
-    );
-    String pct(MasterMetrics v, bool win) => (win ? v.wins : v.losses).isEmpty
-        ? '—'
-        : '${(win ? v.averageWin : v.averageLoss).toStringAsFixed(2)}%';
-    return Column(
-      children: [
-        MasterPanel(
-          title: '승률보다, 수익과 손실의 균형.',
-          caption: '월별 수익·손실과 보유기간을 함께 비교하는 매매 점검표',
-          action: DropdownButton<String>(
-            value: selected,
-            items: [
-              for (final y in years)
-                DropdownMenuItem(value: y, child: Text('$y년')),
-            ],
-            onChanged: (v) => setState(() => year = v),
-          ),
-          child: const Padding(
-            padding: EdgeInsets.all(20),
-            child: Text(
-              'MINERVINI JOURNAL',
-              style: TextStyle(color: masterMint, letterSpacing: 2),
-            ),
-          ),
-        ),
-        cardGrid([
-          MasterCard(
-            label: '성공률',
-            value: x.n == 0 ? '—' : '${x.winRate.toStringAsFixed(2)}%',
-            caption:
-                '수익 ${x.wins.length} · 손실 ${x.losses.length} · 본전 ${x.n - x.wins.length - x.losses.length}건',
-          ),
-          MasterCard(
-            label: '평균 수익 / 평균 손실',
-            value: '${pct(x, true)} / ${pct(x, false)}',
-            caption: '개별 거래 수익률의 산술평균',
-          ),
-          MasterCard(
-            label: '성공 / 실패 비율',
-            value: '${ratio(x.rewardRisk)} : 1',
-            caption: '평균 수익률 ÷ 평균 손실률',
-          ),
-          MasterCard(
-            label: '조정 후 성공 / 실패 비율',
-            value: '${ratio(x.adjustedRewardRisk)} : 1',
-            caption: '승률과 손실 거래 비중을 반영',
-          ),
-        ]),
-        MasterPanel(
-          title: '월별 확인표',
-          caption: '$selected년 · 상단의 분석 기간 필터 적용 · 청산일 기준',
-          child: horizontalTable(
-            [
-              '월',
-              '평균 수익',
-              '평균 손실',
-              '승률',
-              '총 거래수',
-              '장기 수익',
-              '장기 손실',
-              '수익 일수 평균',
-              '손실 일수 평균',
-            ],
-            [
-              for (int i = 1; i <= 12; i++)
-                ...() {
-                  final month = '$selected-${i.toString().padLeft(2, '0')}';
-                  final c = MasterMetrics(
-                        widget.trades.where((t) => t.exit.startsWith(month)),
-                      ),
-                      l = MasterMetrics(
-                        widget.trades.where(
-                          (t) => t.exit.substring(0, 7).compareTo(month) <= 0,
-                        ),
-                      );
-                  return [
-                    [
-                      '$i월',
-                      pct(c, true),
-                      pct(c, false),
-                      c.n == 0 ? '—' : '${c.winRate.toStringAsFixed(2)}%',
-                      '${c.n}건',
-                      pct(l, true),
-                      pct(l, false),
-                      '${c.averageDays(true)?.toStringAsFixed(1) ?? '—'}일',
-                      '${c.averageDays(false)?.toStringAsFixed(1) ?? '—'}일',
-                    ],
-                  ];
-                }(),
-              [
-                '전체 / 평균',
-                pct(x, true),
-                pct(x, false),
-                x.n == 0 ? '—' : '${x.winRate.toStringAsFixed(2)}%',
-                '${x.n}건',
-                pct(
-                  MasterMetrics(
-                    widget.trades.where(
-                      (t) => t.exit.substring(0, 4).compareTo(selected) <= 0,
-                    ),
-                  ),
-                  true,
-                ),
-                pct(
-                  MasterMetrics(
-                    widget.trades.where(
-                      (t) => t.exit.substring(0, 4).compareTo(selected) <= 0,
-                    ),
-                  ),
-                  false,
-                ),
-                '${x.averageDays(true)?.toStringAsFixed(1) ?? '—'}일',
-                '${x.averageDays(false)?.toStringAsFixed(1) ?? '—'}일',
-              ],
-            ],
-            footer:
-                '장기 수익·손실은 현재 기간 필터에 포함된 기록의 시작부터 각 월말까지 누적한 수익·손실 거래 평균입니다.',
-          ),
-        ),
-        holdingDna(),
-        TargetCalculator(stats: x),
-        const SizedBox(height: 22),
-        MasterPanel(
-          title: '계산 기준 확인',
-          child: Padding(
-            padding: const EdgeInsets.all(22),
-            child: muted(
-              '성공률 = 수익 거래수 ÷ 전체 거래수 × 100. 본전 거래도 전체 거래수에 포함합니다.\n조정 비율 = (평균 수익률 × 수익 거래수) ÷ (평균 손실률 × 손실 거래수).\n해당 거래가 없어 평균을 구할 수 없으면 —, 수익은 있고 손실이 없으면 비율을 ∞로 표시합니다.',
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget mentor() {
-    final large = m.losses.isEmpty
-        ? null
-        : m.losses.map((t) => -t.roi).reduce(math.max);
-    final avgBuy = mean(widget.trades.map((t) => t.buy)),
-        size = avgBuy > 0
-            ? widget.trades.map((t) => t.buy).reduce(math.max) / avgBuy
-            : null;
-    final risk =
-        large != null && m.losses.length >= 3 && large >= m.averageLoss * 2;
-    final edge = m.n >= 5 && (m.adjustedRewardRisk ?? 0) < 1;
-    final sizeAttention = m.n >= 5 && (size ?? 0) >= 2;
-    final holdAttention =
-        m.wins.where((t) => holding(t) != null).length >= 3 &&
-        m.losses.where((t) => holding(t) != null).length >= 3 &&
-        (m.averageDays(false) ?? 0) > (m.averageDays(true) ?? 0);
-    final pillars = [
-      (
-        '수익과 손실의 균형',
-        '승률보다 수익·손실의 균형을 먼저 확인한다.',
-        '승률 ${m.winRate.toStringAsFixed(2)}% · 평균 수익 ${masterPct(m.averageWin)} · 평균 손실 ${m.averageLoss.toStringAsFixed(2)}% · 조정 손익비 ${ratio(m.adjustedRewardRisk)}',
-        m.n < 5
-            ? '진입과 청산의 기준을 일관되게 기록하세요.'
-            : edge
-            ? '목표 수익부터 높이기보다 큰 손실의 청산 과정과 작게 끝난 수익 거래를 각각 복기하세요.'
-            : '성과를 만든 진입·청산 기준을 유지하고, 이 결과만으로 매수 규모를 확대하지 마세요.',
-        edge,
-      ),
-      (
-        '손실을 작게 관리하기',
-        '손실을 인정할 기준을 진입 전에 정한다.',
-        large == null
-            ? '선택 기간에 손실 거래가 없습니다.'
-            : '최대 손실 ${large.toStringAsFixed(2)}% · 평균 손실 ${m.averageLoss.toStringAsFixed(2)}% · 손실 ${m.losses.length}건',
-        risk
-            ? '최대 손실이 평균의 2배 이상입니다. 사전에 정한 청산 기준과 실행을 늦춘 이유를 확인하세요.'
-            : '최초 계획과 실제 청산 사유를 비교하고 감당할 원화 손실 한도를 적어두세요.',
-        risk,
-      ),
-      (
-        '매수 규모와 위험의 일관성',
-        '확신과 실제로 감당할 위험금액을 구분한다.',
-        size == null
-            ? '매수 규모를 비교할 기록이 없습니다.'
-            : '최대 매수총액 / 평균 매수총액 ${size.toStringAsFixed(2)}배',
-        '총 매수금액은 분할 매수나 재매수도 포함할 수 있습니다. 실제 보유금액, 청산 기준과 예상 원화 손실을 함께 계산하세요.',
-        sizeAttention,
-      ),
-      (
-        '승자와 패자의 보유 습관',
-        '수익과 손실 거래의 청산 이유를 비교한다.',
-        '수익 평균 ${m.averageDays(true)?.toStringAsFixed(1) ?? '—'}일 · 손실 평균 ${m.averageDays(false)?.toStringAsFixed(1) ?? '—'}일',
-        holdAttention
-            ? '손실 거래를 수익 거래보다 오래 보유했습니다. 회복을 기대하며 기준을 바꾼 거래와 수익을 일찍 청산한 거래가 있었는지 확인하세요.'
-            : '보유일수보다 계획한 청산 조건을 실행했는지 살펴보세요. 승자와 패자의 청산 근거를 나란히 비교하세요.',
-        holdAttention,
-      ),
-    ];
-    final attention = pillars.where((p) => p.$5).toList();
-    final verdict = m.n == 0
-        ? '첫 기록을 기다리는 중'
-        : m.n < 20
-        ? '작은 표본, 일관된 기록부터'
-        : attention.isEmpty
-        ? '기준을 유지하며 검증하기'
-        : '${attention.first.$1}부터 점검';
-    return Column(
-      children: [
-        MasterPanel(
-          title: '미너비니라면, 무엇을 먼저 점검했을까?',
-          caption: '손실 통제와 규율의 관점으로 나의 매매 기록을 돌아봅니다.',
-          child: Padding(
-            padding: const EdgeInsets.all(22),
-            child: muted(
-              '미너비니의 원칙을 참고해 구성한 저널 분석입니다. 실제 미너비니의 발언이나 공식 평가가 아닙니다.${widget.demo ? ' 현재 평가는 샘플 기록을 사용합니다.' : ''}',
-            ),
-          ),
-        ),
-        MasterPanel(
-          title: verdict,
-          caption: 'FIRST THING TO REVIEW · ${m.n}건의 거래',
-          child: Padding(
-            padding: const EdgeInsets.all(22),
-            child: muted(
-              m.n < 20
-                  ? '같은 기준으로 거래를 기록하고, 진입과 청산 근거를 남기세요.'
-                  : attention.isEmpty
-                  ? '계획을 지킨 거래와 그렇지 않은 거래를 구분해 다음 거래의 준비에 활용하세요.'
-                  : attention.first.$4,
-            ),
-          ),
-        ),
-        for (final p in pillars)
-          MasterPanel(
-            title: p.$1,
-            action: badge(
-              p.$5 ? '우선 점검' : '기준 확인',
-              color: p.$5 ? const Color(0xffd7c58d) : masterMint,
-            ),
-            caption: p.$2,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(22, 0, 22, 22),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  muted('기록에서 확인한 점', size: 11),
-                  const SizedBox(height: 8),
-                  Text(p.$3, style: const TextStyle(height: 1.7)),
-                  const Divider(height: 28),
-                  muted('복기할 행동', size: 11),
-                  const SizedBox(height: 8),
-                  Text(p.$4, style: const TextStyle(height: 1.7)),
-                ],
-              ),
-            ),
-          ),
-        MasterPanel(
-          title: '최근 매매에서 달라진 점',
-          caption: '선택 기간 내 최근 20거래와 직전 최대 20거래 비교',
-          child: Padding(
-            padding: const EdgeInsets.all(22),
-            child: muted(
-              m.previous.n < 5
-                  ? '선택 기간에 25건 이상 쌓이면 최근 흐름을 비교합니다.'
-                  : '거래당 평균 수익률 ${masterPct(m.previous.expectancy)} → ${masterPct(m.recent.expectancy)}\n평균 손실률 ${m.previous.averageLoss.toStringAsFixed(2)}% → ${m.recent.averageLoss.toStringAsFixed(2)}%',
-            ),
-          ),
-        ),
-        MasterPanel(
-          title: '다음 10거래에서 실천할 세 가지',
-          caption: '체크한 항목은 이 탭을 열어둔 동안만 표시합니다.',
-          child: Column(
-            children: [
-              for (int i = 0; i < 3; i++)
-                CheckboxListTile(
-                  value: checked.contains(i),
-                  onChanged: (v) => setState(() {
-                    if (v == true) {
-                      checked.add(i);
-                    } else {
-                      checked.remove(i);
-                    }
-                  }),
-                  title: Text(['진입 전', '거래 중', '청산 후'][i]),
-                  subtitle: Text(
-                    [
-                      '진입 이유, 청산 조건, 감당할 원화 손실 한도를 기록하세요.',
-                      '가격이 불리하게 움직일 때 최초 청산 기준을 바꾸고 싶은 이유를 기록하세요.',
-                      '예상한 청산 조건과 실제 청산 사유를 비교하세요.',
-                    ][i],
-                  ),
-                  controlAffinity: ListTileControlAffinity.leading,
-                ),
-            ],
-          ),
-        ),
-        MasterPanel(
-          title: '기록만으로 판단할 수 없는 것',
-          child: Padding(
-            padding: const EdgeInsets.all(22),
-            child: muted(
-              '현재 기록만으로 진입 시점의 추세·상대강도·거래량·VCP·SEPA 조건, 최초 손절선, 계좌 잔고와 동시 보유 금액을 알 수 없습니다. 따라서 진입의 질이나 실제 계좌 위험 비중은 평가하지 않습니다.',
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 
   @override
   Widget build(BuildContext context) => switch (widget.section) {
@@ -1883,12 +1290,10 @@ class _MasterAnalysisState extends State<MasterAnalysis> {
         ],
       ),
     ),
-    4 => dna(),
-    5 => victor(),
-    6 => rView(),
-    7 => distribution(),
-    8 => minervini(),
-    _ => mentor(),
+    4 => victor(),
+    5 => rView(),
+    6 => distribution(),
+    _ => const SizedBox.shrink(),
   };
 }
 

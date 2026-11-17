@@ -85,7 +85,7 @@ void main() {
     },
   );
   testWidgets(
-    'mobile menu navigates through all 10 original pages including lower content',
+    'mobile menu navigates through the simplified pages including lower content',
     (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
