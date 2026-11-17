@@ -5,8 +5,72 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:trend_lab/sites_review.dart';
+import 'package:trend_lab/trade.dart';
 
 void main() {
+  testWidgets(
+    'real amounts use saved trades, never chart returns or manual placeholders',
+    (tester) async {
+      final fixture = jsonDecode(
+        File('assets/trend_lab_sample.json').readAsStringSync(),
+      );
+      final report = Map<String, dynamic>.from(fixture['report']);
+      for (final pnl in [15000.0, -12500.0, 0.0]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: SitesReport(
+                  loading: false,
+                  report: report,
+                  trade: Trade(
+                    id: 'saved',
+                    ticker: '거래',
+                    code: '005930',
+                    entry: '2026-01-01',
+                    exit: '2026-01-02',
+                    buy: 100000,
+                    sell: 100000 + pnl,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('실제 수익금'), findsOneWidget);
+        expect(find.text('실제 손실금'), findsOneWidget);
+        if (pnl > 0) expect(find.text('15,000원'), findsOneWidget);
+        if (pnl < 0) expect(find.text('12,500원'), findsOneWidget);
+        expect(find.text('0원'), pnl == 0 ? findsNWidgets(2) : findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: SitesReport(
+                loading: false,
+                report: report,
+                trade: const Trade(
+                  ticker: '직접 입력',
+                  code: '005930',
+                  entry: '2026-01-01',
+                  exit: '2026-01-02',
+                  buy: 1,
+                  sell: 1,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('저장된 거래를 선택하세요'), findsNWidgets(2));
+      expect(find.text('0원'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   test('APR sample includes matching metrics, seven conditions and future outcomes', () {
     final sample = jsonDecode(
       File('assets/trend_lab_sample.json').readAsStringSync(),
@@ -81,8 +145,8 @@ void main() {
         '에이피알',
         '+7.41%',
         '28일',
-        '+25.66%',
-        '-2.78%',
+        '실제 수익금',
+        '실제 손실금',
         '6 / 7',
         '-11.08%',
         '-12.56%',

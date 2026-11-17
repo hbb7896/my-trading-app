@@ -752,7 +752,8 @@ class SitesReport extends StatelessWidget {
         ),
       );
     }
-    final range = r['range'] as Map?;
+    final recorded = trade != null && trade!.id.isNotEmpty;
+    final pnl = recorded ? trade!.pnl : null;
     final metrics = [
       (
         '종가 기준 변화',
@@ -762,16 +763,16 @@ class SitesReport extends StatelessWidget {
       ),
       ('보유기간', '${r['holding']}일', Colors.white, '${r['sessions']}개 거래일 포함'),
       (
-        '구간 최고가 변화',
-        range == null ? '—' : percent(range['up'] as num),
-        range == null ? siteMuted : sign(range['up'] as num),
-        '진입·청산 당일 제외',
+        '실제 수익금',
+        pnl == null ? '—' : money(pnl > 0 ? pnl : 0),
+        pnl == null ? siteMuted : siteMint,
+        recorded ? '저장된 총 매도금액 − 총 매수금액' : '저장된 거래를 선택하세요',
       ),
       (
-        '구간 최저가 변화',
-        range == null ? '—' : percent(range['down'] as num),
-        range == null ? siteMuted : sign(range['down'] as num),
-        '진입일 종가 대비',
+        '실제 손실금',
+        pnl == null ? '—' : money(pnl < 0 ? -pnl : 0),
+        pnl == null ? siteMuted : const Color(0xffff8d9d),
+        recorded ? '손실 금액의 절댓값' : '저장된 거래를 선택하세요',
       ),
     ];
     final conditions = box(
