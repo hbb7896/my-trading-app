@@ -291,7 +291,14 @@ class ReferenceMaster extends StatelessWidget {
         children: [
           Row(
             children: [
-              const MasterDiamond(size: 26),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(7),
+                child: Image.asset(
+                  'assets/branding/tm-icon.png',
+                  width: 32,
+                  height: 32,
+                ),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(

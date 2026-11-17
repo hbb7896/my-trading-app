@@ -24,15 +24,35 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="Trend Lab">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="apple-touch-icon" href="icons/tm-apple-v1-180.png">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="icon" type="image/png" href="tm-favicon-v1.png"/>
 
   <title>Trend Lab · 거래 복기</title>
   <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0b1220">
+  <style>
+    html,body { margin:0; background:#0b1220; }
+    #tm-launch { position:fixed; inset:0; z-index:9999; display:grid; place-content:center; gap:20px; text-align:center; background:#0b1220; color:#e7ebf2; font:500 15px system-ui,sans-serif; letter-spacing:.6px; transition:opacity .18s ease; }
+    #tm-launch img { width:140px; height:140px; border-radius:30px; margin:auto; }
+    #tm-launch.ready { opacity:0; pointer-events:none; }
+    @media(prefers-reduced-motion:reduce) { #tm-launch { transition:none; } }
+  </style>
 </head>
 <body>
+  <div id="tm-launch" role="status" aria-label="Trading Master 시작 중">
+    <img src="icons/tm-icon-v1-512.png" alt="TM" width="140" height="140">
+    <span>Trading Master</span>
+  </div>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      const launch = document.getElementById('tm-launch');
+      if (!launch) return;
+      launch.classList.add('ready');
+      window.setTimeout(function () { launch.remove(); }, 200);
+    }, {once:true});
+  </script>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
